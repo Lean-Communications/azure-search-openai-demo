@@ -320,7 +320,7 @@ class Approach(ABC):
                 query_type=QueryType.SEMANTIC,
                 query_language=self.query_language,
                 query_speller=self.query_speller,
-                semantic_configuration_name="default",
+                semantic_configuration_name=getattr(self, "semantic_configuration_name", "default"),
                 semantic_query=query_text,
                 x_ms_query_source_authorization=access_token,
             )
@@ -336,12 +336,14 @@ class Approach(ABC):
         documents: list[Document] = []
         async for page in results.by_page():
             async for document in page:
+                content_field = getattr(self, "content_field", "content")
+                sourcepage_field = getattr(self, "sourcepage_field", "sourcepage")
                 documents.append(
                     Document(
                         id=document.get("id"),
-                        content=document.get("content"),
+                        content=document.get(content_field),
                         category=document.get("category"),
-                        sourcepage=document.get("sourcepage"),
+                        sourcepage=document.get(sourcepage_field),
                         sourcefile=document.get("sourcefile"),
                         oids=document.get("oids"),
                         groups=document.get("groups"),

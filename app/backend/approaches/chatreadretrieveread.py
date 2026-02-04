@@ -54,6 +54,7 @@ class ChatReadRetrieveReadApproach(Approach):
         embedding_field: str,
         sourcepage_field: str,
         content_field: str,
+        semantic_configuration_name: str,
         query_language: str,
         query_speller: str,
         prompt_manager: PromptManager,
@@ -83,6 +84,7 @@ class ChatReadRetrieveReadApproach(Approach):
         self.embedding_field = embedding_field
         self.sourcepage_field = sourcepage_field
         self.content_field = content_field
+        self.semantic_configuration_name = semantic_configuration_name
         self.query_language = query_language
         self.query_speller = query_speller
         self.prompt_manager = prompt_manager
