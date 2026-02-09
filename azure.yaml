@@ -12,7 +12,7 @@ services:
     # Please check docs/azure_container_apps.md for more information on how to deploy to Azure Container Apps
     host: containerapp
     docker:
-      remoteBuild: true
+      remoteBuild: false
     # Please check docs/azure_app_service.md for more information on how to deploy to Azure App Service
     # host: appservice
     hooks:
@@ -86,22 +86,11 @@ hooks:
     postprovision:
       windows:
         shell: pwsh
-        run: ./scripts/auth_update.ps1;./scripts/prepdocs.ps1
+        run: ./scripts/auth_update.ps1
         interactive: true
         continueOnError: false
       posix:
         shell: sh
-        run: ./scripts/auth_update.sh;./scripts/prepdocs.sh
-        interactive: true
-        continueOnError: false
-    postdeploy:
-      windows:
-        shell: pwsh
-        run: ./scripts/setup_cloud_ingestion.ps1
-        interactive: true
-        continueOnError: false
-      posix:
-        shell: sh
-        run: ./scripts/setup_cloud_ingestion.sh
+        run: ./scripts/auth_update.sh
         interactive: true
         continueOnError: false
