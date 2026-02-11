@@ -33,13 +33,13 @@
     },
     "developerSettings": "Developer settings",
 
-    "chatEmptyStateTitle": "Chat with your data",
-    "chatEmptyStateSubtitle": "Ask anything or try an example",
+    "chatEmptyStateTitle": "Chat med bedriftens data",
+    "chatEmptyStateSubtitle": "Still et spørsmål eller prøv et eksempel",
     "defaultExamples": {
-        "1": "What is included in my Northwind Health Plus plan that is not in standard?",
-        "2": "What happens in a performance review?",
-        "3": "What does a Product Manager do?",
-        "placeholder": "Type a new question (e.g. does my plan cover annual eye exams?)"
+        "1": "Hvilket verneutstyr er påbudt på byggeplassene våre?",
+        "2": "Hva er prosedyren for hastebestillinger?",
+        "3": "Hva skjer i løpet av den første uken som nyansatt?",
+        "placeholder": "Skriv et spørsmål (f.eks. hva er HMS-retningslinjene våre?)"
     },
     "askTitle": "Ask your data",
     "multimodalExamples": {
