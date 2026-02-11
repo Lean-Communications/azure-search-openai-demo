@@ -94,9 +94,11 @@ def generate_ground_truth_ragas(num_questions=200, num_search_documents=None, kg
 
         logger.info("Creating a RAGAS knowledge graph based off of %d search documents", len(search_docs))
         nodes = []
+        content_field = os.getenv("KB_FIELDS_CONTENT", "content")
+        sourcepage_field = os.getenv("KB_FIELDS_SOURCEPAGE", "sourcepage")
         for doc in search_docs:
-            content = doc["content"]
-            citation = doc["sourcepage"]
+            content = doc[content_field]
+            citation = doc.get(sourcepage_field, doc["chunk_id"])
             node = Node(
                 type=NodeType.DOCUMENT,
                 properties={
@@ -110,7 +112,7 @@ def generate_ground_truth_ragas(num_questions=200, num_search_documents=None, kg
 
         logger.info("Using RAGAS to apply transforms to knowledge graph")
         transforms = default_transforms(
-            documents=[LCDocument(page_content=doc["content"]) for doc in search_docs],
+            documents=[LCDocument(page_content=doc[content_field]) for doc in search_docs],
             llm=generator_llm,
             embedding_model=generator_embeddings,
         )
