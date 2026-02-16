@@ -275,6 +275,12 @@ class SearchManager:
                         filterable=True,
                         facetable=False,
                     ),
+                    SimpleField(
+                        name="imageUrl",
+                        type="Edm.String",
+                        filterable=True,
+                        facetable=False,
+                    ),
                 ]
                 if self.use_acls:
                     fields.append(oids_field)
@@ -351,6 +357,18 @@ class SearchManager:
                     existing_index.fields.append(
                         SimpleField(
                             name="storageUrl",
+                            type="Edm.String",
+                            filterable=True,
+                            facetable=False,
+                        ),
+                    )
+                    await search_index_client.create_or_update_index(existing_index)
+
+                if not any(field.name == "imageUrl" for field in existing_index.fields):
+                    logger.info("Adding imageUrl field to index %s", self.search_info.index_name)
+                    existing_index.fields.append(
+                        SimpleField(
+                            name="imageUrl",
                             type="Edm.String",
                             filterable=True,
                             facetable=False,
@@ -613,6 +631,10 @@ class SearchManager:
                                 for image in section.chunk.images
                             ]
                         }
+                    # Extract the first image URL (if any) for the top-level imageUrl field
+                    first_image_url = next(
+                        (img.url for img in section.chunk.images if img.url), None
+                    )
                     document = {
                         "id": f"{section.content.filename_to_id()}-page-{section_index + batch_index * MAX_BATCH_SIZE}",
                         "content": section.chunk.text,
@@ -621,6 +643,7 @@ class SearchManager:
                             filename=section.content.filename(), page=section.chunk.page_num
                         ),
                         "sourcefile": section.content.filename(),
+                        "imageUrl": first_image_url,
                         **image_fields,
                         **section.content.acls,
                     }

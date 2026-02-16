@@ -105,9 +105,10 @@ def build_figure_markup(image: "ImageOnPage", description: Optional[str] = None)
     if image.title:
         caption_parts.append(image.title)
     caption = " ".join(part for part in caption_parts if part)
+    img_tag = f'<img src="{image.url}">' if image.url else ""
     if description:
-        return f"<figure><figcaption>{caption}<br>{description}</figcaption></figure>"
-    return f"<figure><figcaption>{caption}</figcaption></figure>"
+        return f"<figure>{img_tag}<figcaption>{caption}<br>{description}</figcaption></figure>"
+    return f"<figure>{img_tag}<figcaption>{caption}</figcaption></figure>"
 
 
 async def process_page_image(

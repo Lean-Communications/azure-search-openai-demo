@@ -344,6 +344,8 @@ var abbrs = loadJsonContent('abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
 
+var useSharePointIngestion = useCloudIngestion && !empty(sharepointSiteUrl)
+
 var tenantIdForAuth = !empty(authTenantId) ? authTenantId : tenantId
 var authenticationIssuerUri = '${environment().authentication.loginEndpoint}${tenantIdForAuth}/v2.0'
 
@@ -375,6 +377,15 @@ param ragSendImageSources bool = true
 param useWebSource bool = false
 @description('Whether to enable SharePoint sources for agentic retrieval')
 param useSharePointSource bool = false
+
+@description('SharePoint site URL for document ingestion via Logic App (e.g. https://contoso.sharepoint.com/sites/mysite). Leave empty to skip Logic App deployment.')
+param sharepointSiteUrl string = ''
+@description('Folder path within the SharePoint document library to monitor for new files (e.g. /Delte dokumenter/General)')
+param sharepointFolderPath string = ''
+@description('SharePoint document library GUID (find via Logic App designer or SharePoint site settings)')
+param sharepointLibraryId string = ''
+@description('Polling interval in minutes for checking new SharePoint files')
+param sharepointPollingIntervalMinutes int = 5
 
 param acaIdentityName string = deploymentTarget == 'containerapps' ? '${environmentName}-aca-identity' : ''
 param acaManagedEnvironmentName string = deploymentTarget == 'containerapps' ? '${environmentName}-aca-env' : ''
@@ -723,6 +734,36 @@ module functions 'app/functions.bicep' = if (useCloudIngestion) {
     openIdIssuer: authenticationIssuerUri
     appEnvVariables: appEnvVariables
     searchUserAssignedIdentityClientId: searchService.outputs.userAssignedIdentityClientId
+    logicAppIdentityClientId: useSharePointIngestion ? logicAppIdentity!.outputs.clientId : ''
+  }
+}
+
+// User-assigned managed identity for the Logic App (created before both functions and logic app to avoid circular deps)
+module logicAppIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.1' = if (useSharePointIngestion) {
+  name: 'logic-app-identity'
+  scope: resourceGroup
+  params: {
+    name: '${abbrs.managedIdentityUserAssignedIdentities}logic-app-${resourceToken}'
+    location: location
+    tags: tags
+  }
+}
+
+// Logic App for SharePoint → document ingester pipeline
+module logicApp 'app/logic-app.bicep' = if (useSharePointIngestion) {
+  name: 'logic-app'
+  scope: resourceGroup
+  params: {
+    name: '${abbrs.logicWorkflows}sharepoint-${resourceToken}'
+    location: location
+    tags: tags
+    sharepointSiteUrl: sharepointSiteUrl
+    sharepointLibraryId: sharepointLibraryId
+    sharepointFolderPath: sharepointFolderPath
+    pollingIntervalMinutes: sharepointPollingIntervalMinutes
+    documentIngesterEndpoint: 'https://${functions!.outputs.documentIngesterUrl}/api/ingest'
+    documentIngesterAudience: functions!.outputs.documentIngesterAuthIdentifierUri
+    identityId: logicAppIdentity!.outputs.resourceId
   }
 }
 

@@ -33,10 +33,18 @@ class BaseBlobManager:
 
     @classmethod
     def sourcepage_from_file_page(cls, filename, page=0) -> str:
-        if os.path.splitext(filename)[1].lower() == ".pdf":
-            return f"{os.path.basename(filename)}#page={page+1}"
+        base = os.path.basename(filename)
+        ext = os.path.splitext(filename)[1].lower()
+        if ext == ".pdf":
+            return f"{base}#page={page+1}"
+        elif ext in (".pptx", ".ppt"):
+            return f"{base}#slide={page+1}"
+        elif ext in (".docx", ".doc"):
+            return f"{base}#page={page+1}"
+        elif ext in (".xlsx", ".xls"):
+            return f"{base}#sheet={page+1}"
         else:
-            return os.path.basename(filename)
+            return base
 
     @classmethod
     def blob_name_from_file_name(cls, filename) -> str:

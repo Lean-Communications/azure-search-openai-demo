@@ -370,6 +370,15 @@
     },
     "useSharePointSource": {
       "value": "${USE_SHAREPOINT_SOURCE=false}"
+    },
+    "sharepointSiteUrl": {
+      "value": "${AZURE_SHAREPOINT_SITE_URL}"
+    },
+    "sharepointLibraryId": {
+      "value": "${SHAREPOINT_LIBRARY_ID}"
+    },
+    "sharepointFolderPath": {
+      "value": "${SHAREPOINT_FOLDER_PATH}"
     }
   }
 }

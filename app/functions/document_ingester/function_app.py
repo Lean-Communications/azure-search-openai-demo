@@ -9,6 +9,7 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import unquote
 
 import azure.functions as func
 from azure.core.exceptions import HttpResponseError
@@ -54,6 +55,7 @@ class GlobalSettings:
 
 
 settings: GlobalSettings | None = None
+_index_ensured = False
 
 
 def configure_global_settings():
@@ -107,6 +109,11 @@ def configure_global_settings():
         parsed = urlparse(azure_openai_custom_url)
         azure_openai_endpoint = f"{parsed.scheme}://{parsed.netloc}"
 
+    # Always extract and describe figures from documents using GPT-4o.
+    # This is independent of USE_MULTIMODAL (which controls image *vector* embeddings in search).
+    # Figures are described as text, embedded as text, and the images stored in blob storage.
+    process_figures = True
+
     # File processors (parsers)
     file_processors = build_file_processors(
         azure_credential=azure_credential,
@@ -114,13 +121,13 @@ def configure_global_settings():
         document_intelligence_key=None,
         use_local_pdf_parser=os.getenv("USE_LOCAL_PDF_PARSER", "false").lower() == "true",
         use_local_html_parser=os.getenv("USE_LOCAL_HTML_PARSER", "false").lower() == "true",
-        process_figures=use_multimodal or use_content_understanding,
+        process_figures=process_figures,
     )
 
-    # Figure processor (GPT-4o or Content Understanding for image descriptions)
+    # Figure processor — always use GPT-4o to describe extracted figures
     figure_processor = setup_figure_processor(
         credential=azure_credential,
-        use_multimodal=use_multimodal,
+        use_multimodal=True,
         use_content_understanding=use_content_understanding,
         content_understanding_endpoint=content_understanding_endpoint,
         openai_client=openai_client,
@@ -195,13 +202,19 @@ async def ingest_document(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
         )
 
-    filename = req.headers.get("X-Filename")
-    if not filename:
+    global _index_ensured
+    if not _index_ensured:
+        await settings.search_manager.create_index()
+        _index_ensured = True
+
+    raw_filename = req.headers.get("X-Filename")
+    if not raw_filename:
         return func.HttpResponse(
             json.dumps({"error": "X-Filename header is required"}),
             mimetype="application/json",
             status_code=400,
         )
+    filename = unquote(raw_filename)
 
     source_url = req.headers.get("X-Source-Url")
     document_bytes = req.get_body()
@@ -259,6 +272,13 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
         logger.warning("No pages extracted from %s", filename)
         return 0
 
+    # 2.5. Extract embedded images from Office documents (PPTX/DOCX)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in (".pptx", ".docx"):
+        from prepdocslib.officeimageextractor import extract_and_merge_office_images
+
+        extract_and_merge_office_images(filename, document_bytes, pages)
+
     # 3. Process figures (describe with GPT-4o, upload to blob)
     for page in pages:
         for image in page.images:
@@ -283,7 +303,10 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
         logger.warning("No sections produced from %s", filename)
         return 0
 
-    # 5. Embed and push to search index
+    # 5. Remove old chunks for this file (avoids stale orphans on re-ingestion)
+    await settings.search_manager.remove_content(path=filename)
+
+    # 6. Embed and push to search index
     await settings.search_manager.update_content(sections, url=source_url)
 
     return len(sections)

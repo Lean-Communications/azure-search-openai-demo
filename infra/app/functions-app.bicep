@@ -28,6 +28,9 @@ param authTenantId string
 @description('The application client ID of the Search service user-assigned managed identity')
 param searchUserAssignedIdentityClientId string
 
+@description('Additional Entra ID application client IDs allowed to call this function (e.g. Logic App managed identity)')
+param additionalAllowedApplicationClientIds array = []
+
 // AVM expects authentication.type values: SystemAssignedIdentity | UserAssignedIdentity | StorageAccountConnectionString
 // Use UserAssignedIdentity for per-function user-assigned managed identity deployment storage access.
 var identityType = 'UserAssignedIdentity'
@@ -154,7 +157,7 @@ resource auth 'Microsoft.Web/sites/config@2022-03-01' = {
           ]
           defaultAuthorizationPolicy: {
             allowedPrincipals: {}
-            allowedApplications: [searchUserAssignedIdentityClientId]
+            allowedApplications: union([searchUserAssignedIdentityClientId], additionalAllowedApplicationClientIds)
           }
         }
         isAutoProvisioned: false

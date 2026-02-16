@@ -25,6 +25,9 @@ param openIdIssuer string
 @description('The principal ID of the Search service user-assigned managed identity')
 param searchUserAssignedIdentityClientId string
 
+@description('Client ID of the Logic App managed identity to allow calling the document ingester')
+param logicAppIdentityClientId string = ''
+
 var abbrs = loadJsonContent('../abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, resourceGroup().id, location))
 
@@ -414,6 +417,7 @@ module documentIngester 'functions-app.bicep' = {
     authIdentifierUri: documentIngesterAppReg.outputs.identifierUri
     authTenantId: tenant().tenantId
     searchUserAssignedIdentityClientId: searchUserAssignedIdentityClientId
+    additionalAllowedApplicationClientIds: !empty(logicAppIdentityClientId) ? [logicAppIdentityClientId] : []
     storageAccountName: documentIngesterRuntimeStorageName
     deploymentStorageContainerName: deploymentContainerName
     appSettings: union(appEnvVariables, {

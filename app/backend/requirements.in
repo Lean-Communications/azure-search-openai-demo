@@ -32,3 +32,5 @@ python-dotenv
 prompty
 rich
 typing-extensions
+python-pptx
+python-docx
