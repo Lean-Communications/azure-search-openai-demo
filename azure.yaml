@@ -71,6 +71,16 @@ services:
   #       run: python ../../../scripts/copy_prepdocslib.py
   #       interactive: false
   #       continueOnError: false
+  document-ingester:
+    project: ./app/functions/document_ingester
+    language: py
+    host: function
+    hooks:
+      prepackage:
+        shell: sh
+        run: python3 ../../../scripts/copy_prepdocslib.py
+        interactive: false
+        continueOnError: false
 hooks:
     preprovision:
       windows:

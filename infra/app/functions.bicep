@@ -18,6 +18,7 @@ param appEnvVariables object
 param documentExtractorName string
 param figureProcessorName string
 param textProcessorName string
+param documentIngesterName string
 // OpenID issuer provided by main template (e.g. https://login.microsoftonline.com/<tenantId>/v2.0)
 param openIdIssuer string
 
@@ -30,10 +31,12 @@ var resourceToken = toLower(uniqueString(subscription().id, resourceGroup().id, 
 var documentExtractorRuntimeStorageName = '${abbrs.storageStorageAccounts}doc${take(resourceToken, 18)}'
 var figureProcessorRuntimeStorageName = '${abbrs.storageStorageAccounts}fig${take(resourceToken, 18)}'
 var textProcessorRuntimeStorageName = '${abbrs.storageStorageAccounts}txt${take(resourceToken, 18)}'
+var documentIngesterRuntimeStorageName = '${abbrs.storageStorageAccounts}ing${take(resourceToken, 18)}'
 
 var documentExtractorHostId = 'doc-skill-${take(resourceToken, 12)}'
 var figureProcessorHostId = 'fig-skill-${take(resourceToken, 12)}'
 var textProcessorHostId = 'txt-skill-${take(resourceToken, 12)}'
+var documentIngesterHostId = 'ing-skill-${take(resourceToken, 12)}'
 
 var runtimeStorageRoles = [
   {
@@ -99,6 +102,21 @@ module textProcessorRuntimeStorageAccount '../core/storage/storage-account.bicep
   }
 }
 
+module documentIngesterRuntimeStorageAccount '../core/storage/storage-account.bicep' = {
+  name: 'document-ingester-runtime-storage'
+  params: {
+    name: documentIngesterRuntimeStorageName
+    location: location
+    tags: tags
+    allowBlobPublicAccess: false
+    containers: [
+      {
+        name: deploymentContainerName
+      }
+    ]
+  }
+}
+
 resource documentExtractorRuntimeStorage 'Microsoft.Storage/storageAccounts@2024-01-01' existing = {
   name: documentExtractorRuntimeStorageName
 }
@@ -109,6 +127,10 @@ resource figureProcessorRuntimeStorage 'Microsoft.Storage/storageAccounts@2024-0
 
 resource textProcessorRuntimeStorage 'Microsoft.Storage/storageAccounts@2024-01-01' existing = {
   name: textProcessorRuntimeStorageName
+}
+
+resource documentIngesterRuntimeStorage 'Microsoft.Storage/storageAccounts@2024-01-01' existing = {
+  name: documentIngesterRuntimeStorageName
 }
 
 resource documentExtractorRuntimeStorageRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for role in runtimeStorageRoles: {
@@ -150,6 +172,19 @@ resource textProcessorRuntimeStorageRoles 'Microsoft.Authorization/roleAssignmen
   ]
 }]
 
+resource documentIngesterRuntimeStorageRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for role in runtimeStorageRoles: {
+  name: guid(documentIngesterRuntimeStorage.id, role.roleDefinitionId, 'ingester-storage-roles')
+  scope: documentIngesterRuntimeStorage
+  properties: {
+    principalId: functionsUserIdentity.outputs.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', role.roleDefinitionId)
+  }
+  dependsOn: [
+    documentIngesterRuntimeStorageAccount
+  ]
+}]
+
 // Flex Consumption supports only one Function App per plan; create a dedicated plan per ingestion function
 module documentExtractorPlan 'br/public:avm/res/web/serverfarm:0.1.1' = {
   name: 'doc-extractor-plan'
@@ -183,6 +218,20 @@ module textProcessorPlan 'br/public:avm/res/web/serverfarm:0.1.1' = {
   name: 'text-processor-plan'
   params: {
     name: '${abbrs.webServerFarms}text-processor-${resourceToken}'
+    sku: {
+      name: 'FC1'
+      tier: 'FlexConsumption'
+    }
+    reserved: true
+    location: location
+    tags: tags
+  }
+}
+
+module documentIngesterPlan 'br/public:avm/res/web/serverfarm:0.1.1' = {
+  name: 'document-ingester-plan'
+  params: {
+    name: '${abbrs.webServerFarms}doc-ingester-${resourceToken}'
     sku: {
       name: 'FC1'
       tier: 'FlexConsumption'
@@ -335,6 +384,49 @@ module textProcessor 'functions-app.bicep' = {
   ]
 }
 
+// Document Ingester Function App
+module documentIngesterAppReg '../core/auth/appregistration.bicep' = {
+  name: 'doc-ingester-appreg'
+  params: {
+    appUniqueName: '${documentIngesterName}-appreg'
+    cloudEnvironment: environment().name
+    webAppIdentityId: functionsUserIdentity.outputs.principalId
+    clientAppName: '${documentIngesterName}-app'
+    clientAppDisplayName: '${documentIngesterName} Entra App'
+    issuer: openIdIssuer
+    webAppEndpoint: 'https://${documentIngesterName}.azurewebsites.net'
+  }
+}
+
+module documentIngester 'functions-app.bicep' = {
+  name: 'document-ingester-func'
+  params: {
+    name: documentIngesterName
+    location: location
+    tags: union(tags, { 'azd-service-name': 'document-ingester' })
+    applicationInsightsName: applicationInsightsName
+    appServicePlanId: documentIngesterPlan.outputs.resourceId
+    runtimeName: 'python'
+    runtimeVersion: '3.11'
+    identityId: functionsUserIdentity.outputs.resourceId
+    identityClientId: functionsUserIdentity.outputs.clientId
+    authClientId: documentIngesterAppReg.outputs.clientAppId
+    authIdentifierUri: documentIngesterAppReg.outputs.identifierUri
+    authTenantId: tenant().tenantId
+    searchUserAssignedIdentityClientId: searchUserAssignedIdentityClientId
+    storageAccountName: documentIngesterRuntimeStorageName
+    deploymentStorageContainerName: deploymentContainerName
+    appSettings: union(appEnvVariables, {
+      AzureFunctionsWebHost__hostid: documentIngesterHostId
+    })
+    instanceMemoryMB: 4096
+    maximumInstanceCount: 100
+  }
+  dependsOn: [
+    documentIngesterRuntimeStorageAccount
+  ]
+}
+
 // RBAC: Document Extractor Roles
 module functionsIdentityRBAC 'functions-rbac.bicep' = {
   name: 'doc-extractor-rbac'
@@ -360,9 +452,12 @@ output figureProcessorName string = figureProcessor.outputs.name
 output figureProcessorUrl string = figureProcessor.outputs.defaultHostname
 output textProcessorName string = textProcessor.outputs.name
 output textProcessorUrl string = textProcessor.outputs.defaultHostname
+output documentIngesterName string = documentIngester.outputs.name
+output documentIngesterUrl string = documentIngester.outputs.defaultHostname
 // Resource IDs for each function app (used for auth_resource_id with managed identity secured skills)
 output documentExtractorAuthIdentifierUri string = documentExtractorAppReg.outputs.identifierUri
 output figureProcessorAuthIdentifierUri string = figureProcessorAppReg.outputs.identifierUri
 output textProcessorAuthIdentifierUri string = textProcessorAppReg.outputs.identifierUri
+output documentIngesterAuthIdentifierUri string = documentIngesterAppReg.outputs.identifierUri
 // Principal ID of the shared user-assigned identity (for additional role assignments in main.bicep)
 output principalId string = functionsUserIdentity.outputs.principalId

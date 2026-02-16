@@ -235,8 +235,12 @@ param embeddingDimensions int = 0
 var embedding = {
   modelName: !empty(embeddingModelName) ? embeddingModelName : 'text-embedding-3-large'
   deploymentName: !empty(embeddingDeploymentName) ? embeddingDeploymentName : 'text-embedding-3-large'
-  deploymentVersion: !empty(embeddingDeploymentVersion) ? embeddingDeploymentVersion : (embeddingModelName == 'text-embedding-ada-002' ? '2' : '1')
-  deploymentSkuName: !empty(embeddingDeploymentSkuName) ? embeddingDeploymentSkuName : (embeddingModelName == 'text-embedding-ada-002' ? 'Standard' : 'GlobalStandard')
+  deploymentVersion: !empty(embeddingDeploymentVersion)
+    ? embeddingDeploymentVersion
+    : (embeddingModelName == 'text-embedding-ada-002' ? '2' : '1')
+  deploymentSkuName: !empty(embeddingDeploymentSkuName)
+    ? embeddingDeploymentSkuName
+    : (embeddingModelName == 'text-embedding-ada-002' ? 'Standard' : 'GlobalStandard')
   deploymentCapacity: embeddingDeploymentCapacity != 0 ? embeddingDeploymentCapacity : 200
   dimensions: embeddingDimensions != 0 ? embeddingDimensions : 3072
 }
@@ -266,7 +270,6 @@ var knowledgeBase = {
   deploymentSkuName: !empty(knowledgeBaseDeploymentSkuName) ? knowledgeBaseDeploymentSkuName : 'GlobalStandard'
   deploymentCapacity: knowledgeBaseDeploymentCapacity != 0 ? knowledgeBaseDeploymentCapacity : 100
 }
-
 
 param tenantId string = tenant().tenantId
 param authTenantId string = ''
@@ -381,12 +384,18 @@ param containerRegistryName string = deploymentTarget == 'containerapps'
 
 // Configure CORS for allowing different web apps to use the backend
 // For more information please see https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
-var msftAllowedOrigins = [ 'https://portal.azure.com', 'https://ms.portal.azure.com' ]
+var msftAllowedOrigins = ['https://portal.azure.com', 'https://ms.portal.azure.com']
 var loginEndpoint = environment().authentication.loginEndpoint
-var loginEndpointFixed = lastIndexOf(loginEndpoint, '/') == length(loginEndpoint) - 1 ? substring(loginEndpoint, 0, max(length(loginEndpoint) - 1, 0)) : loginEndpoint
-var allMsftAllowedOrigins = !(empty(clientAppId)) ? union(msftAllowedOrigins, [ loginEndpointFixed ]) : msftAllowedOrigins
+var loginEndpointFixed = lastIndexOf(loginEndpoint, '/') == length(loginEndpoint) - 1
+  ? substring(loginEndpoint, 0, max(length(loginEndpoint) - 1, 0))
+  : loginEndpoint
+var allMsftAllowedOrigins = !(empty(clientAppId)) ? union(msftAllowedOrigins, [loginEndpointFixed]) : msftAllowedOrigins
 // Combine custom origins with Microsoft origins, remove any empty origin strings and remove any duplicate origins
-var allowedOrigins = reduce(filter(union(split(allowedOrigin, ';'), allMsftAllowedOrigins), o => length(trim(o)) > 0), [], (cur, next) => union(cur, [next]))
+var allowedOrigins = reduce(
+  filter(union(split(allowedOrigin, ';'), allMsftAllowedOrigins), o => length(trim(o)) > 0),
+  [],
+  (cur, next) => union(cur, [next])
+)
 
 // Organize resources in a resource group
 resource resourceGroup 'Microsoft.Resources/resourceGroups@2024-11-01' = {
@@ -478,7 +487,9 @@ module appServicePlan 'core/host/appserviceplan.bicep' = if (deploymentTarget ==
 }
 
 // Determine which ADLS storage account name to use (existing or provisioned)
-var adlsStorageAccountNameResolved = useExistingAdlsStorage ? existingAdlsStorage.name : (useCloudIngestionAcls ? adlsStorage!.outputs.name : '')
+var adlsStorageAccountNameResolved = useExistingAdlsStorage
+  ? existingAdlsStorage.name
+  : (useCloudIngestionAcls ? adlsStorage!.outputs.name : '')
 
 // For cloud ingestion with ACLs, use the ADLS Gen2 storage account; otherwise use the standard storage account
 var cloudIngestionStorageAccount = useCloudIngestionAcls ? adlsStorageAccountNameResolved : storage.outputs.name
@@ -651,20 +662,24 @@ module acaBackend 'core/host/container-app-upsert.bicep' = if (deploymentTarget 
       // For using managed identity to access Azure resources. See https://github.com/microsoft/azure-container-apps/issues/442
       AZURE_CLIENT_ID: (deploymentTarget == 'containerapps') ? acaIdentity!.outputs.clientId : ''
     })
-    secrets: useAuthentication ? {
-      azureclientappsecret: clientAppSecret
-      azureserverappsecret: serverAppSecret
-    } : {}
-    envSecrets: useAuthentication ? [
-      {
-        name: 'AZURE_CLIENT_APP_SECRET'
-        secretRef: 'azureclientappsecret'
-      }
-      {
-        name: 'AZURE_SERVER_APP_SECRET'
-        secretRef: 'azureserverappsecret'
-      }
-    ] : []
+    secrets: useAuthentication
+      ? {
+          azureclientappsecret: clientAppSecret
+          azureserverappsecret: serverAppSecret
+        }
+      : {}
+    envSecrets: useAuthentication
+      ? [
+          {
+            name: 'AZURE_CLIENT_APP_SECRET'
+            secretRef: 'azureclientappsecret'
+          }
+          {
+            name: 'AZURE_SERVER_APP_SECRET'
+            secretRef: 'azureserverappsecret'
+          }
+        ]
+      : []
   }
 }
 
@@ -698,10 +713,13 @@ module functions 'app/functions.bicep' = if (useCloudIngestion) {
     visionServiceName: useMultimodal ? vision!.outputs.name : ''
     visionResourceGroupName: useMultimodal ? visionResourceGroup.name : resourceGroup.name
     contentUnderstandingServiceName: useMediaDescriberAzureCU ? contentUnderstanding!.outputs.name : ''
-    contentUnderstandingResourceGroupName: useMediaDescriberAzureCU ? contentUnderstandingResourceGroup.name : resourceGroup.name
+    contentUnderstandingResourceGroupName: useMediaDescriberAzureCU
+      ? contentUnderstandingResourceGroup.name
+      : resourceGroup.name
     documentExtractorName: '${abbrs.webSitesFunctions}doc-extractor-${resourceToken}'
     figureProcessorName: '${abbrs.webSitesFunctions}figure-processor-${resourceToken}'
     textProcessorName: '${abbrs.webSitesFunctions}text-processor-${resourceToken}'
+    documentIngesterName: '${abbrs.webSitesFunctions}doc-ingester-${resourceToken}'
     openIdIssuer: authenticationIssuerUri
     appEnvVariables: appEnvVariables
     searchUserAssignedIdentityClientId: searchService.outputs.userAssignedIdentityClientId
@@ -739,19 +757,20 @@ var openAiDeployments = concat(
   defaultOpenAiDeployments,
   useEval
     ? [
-      {
-        name: eval.deploymentName
-        model: {
-          format: 'OpenAI'
-          name: eval.modelName
-          version: eval.deploymentVersion
+        {
+          name: eval.deploymentName
+          model: {
+            format: 'OpenAI'
+            name: eval.modelName
+            version: eval.deploymentVersion
+          }
+          sku: {
+            name: eval.deploymentSkuName
+            capacity: eval.deploymentCapacity
+          }
         }
-        sku: {
-          name: eval.deploymentSkuName
-          capacity: eval.deploymentCapacity
-        }
-      }
-    ] : [],
+      ]
+    : [],
   useAgenticKnowledgeBase
     ? [
         {
@@ -820,9 +839,7 @@ module vision 'br/public:avm/res/cognitive-services/account:0.7.2' = if (useMult
   name: 'vision'
   scope: visionResourceGroup
   params: {
-    name: !empty(visionServiceName)
-      ? visionServiceName
-      : '${abbrs.cognitiveServicesVision}${resourceToken}'
+    name: !empty(visionServiceName) ? visionServiceName : '${abbrs.cognitiveServicesVision}${resourceToken}'
     kind: 'CognitiveServices'
     networkAcls: {
       defaultAction: 'Allow'
@@ -835,7 +852,6 @@ module vision 'br/public:avm/res/cognitive-services/account:0.7.2' = if (useMult
     sku: 'S0'
   }
 }
-
 
 module contentUnderstanding 'br/public:avm/res/cognitive-services/account:0.7.2' = if (useMediaDescriberAzureCU) {
   name: 'content-understanding'
@@ -1076,7 +1092,6 @@ module ai 'core/ai/ai-environment.bicep' = if (useAiProject) {
     applicationInsightsId: !useApplicationInsights ? '' : monitoring!.outputs.applicationInsightsId
   }
 }
-
 
 // USER ROLES
 var principalType = empty(runningOnGh) && empty(runningOnAdo) ? 'User' : 'ServicePrincipal'
@@ -1451,7 +1466,13 @@ var otherPrivateEndpointConnections = (usePrivateEndpoint)
     ]
   : []
 
-var privateEndpointConnections = concat(otherPrivateEndpointConnections, openAiPrivateEndpointConnection, cognitiveServicesPrivateEndpointConnection, containerAppsPrivateEndpointConnection, appServicePrivateEndpointConnection)
+var privateEndpointConnections = concat(
+  otherPrivateEndpointConnections,
+  openAiPrivateEndpointConnection,
+  cognitiveServicesPrivateEndpointConnection,
+  containerAppsPrivateEndpointConnection,
+  appServicePrivateEndpointConnection
+)
 
 module privateEndpoints 'private-endpoints.bicep' = if (usePrivateEndpoint) {
   name: 'privateEndpoints'
@@ -1546,15 +1567,21 @@ output AZURE_OPENAI_EVAL_DEPLOYMENT string = isAzureOpenAiHost && useEval ? eval
 output AZURE_OPENAI_EVAL_DEPLOYMENT_VERSION string = isAzureOpenAiHost && useEval ? eval.deploymentVersion : ''
 output AZURE_OPENAI_EVAL_DEPLOYMENT_SKU string = isAzureOpenAiHost && useEval ? eval.deploymentSkuName : ''
 output AZURE_OPENAI_EVAL_MODEL string = isAzureOpenAiHost && useEval ? eval.modelName : ''
-output AZURE_OPENAI_KNOWLEDGEBASE_DEPLOYMENT string = isAzureOpenAiHost && useAgenticKnowledgeBase ? knowledgeBase.deploymentName : ''
-output AZURE_OPENAI_KNOWLEDGEBASE_MODEL string = isAzureOpenAiHost && useAgenticKnowledgeBase ? knowledgeBase.modelName : ''
-output AZURE_OPENAI_REASONING_EFFORT string  = defaultReasoningEffort
+output AZURE_OPENAI_KNOWLEDGEBASE_DEPLOYMENT string = isAzureOpenAiHost && useAgenticKnowledgeBase
+  ? knowledgeBase.deploymentName
+  : ''
+output AZURE_OPENAI_KNOWLEDGEBASE_MODEL string = isAzureOpenAiHost && useAgenticKnowledgeBase
+  ? knowledgeBase.modelName
+  : ''
+output AZURE_OPENAI_REASONING_EFFORT string = defaultReasoningEffort
 output AZURE_SEARCH_KNOWLEDGEBASE_RETRIEVAL_REASONING_EFFORT string = defaultRetrievalReasoningEffort
 output AZURE_SPEECH_SERVICE_ID string = useSpeechOutputAzure ? speech!.outputs.resourceId : ''
 output AZURE_SPEECH_SERVICE_LOCATION string = useSpeechOutputAzure ? speech!.outputs.location : ''
 
 output AZURE_VISION_ENDPOINT string = useMultimodal ? vision!.outputs.endpoint : ''
-output AZURE_CONTENTUNDERSTANDING_ENDPOINT string = useMediaDescriberAzureCU ? contentUnderstanding!.outputs.endpoint : ''
+output AZURE_CONTENTUNDERSTANDING_ENDPOINT string = useMediaDescriberAzureCU
+  ? contentUnderstanding!.outputs.endpoint
+  : ''
 
 output AZURE_DOCUMENTINTELLIGENCE_SERVICE string = documentIntelligence.outputs.name
 output AZURE_DOCUMENTINTELLIGENCE_RESOURCE_GROUP string = documentIntelligenceResourceGroup.name
@@ -1570,15 +1597,18 @@ output AZURE_SEARCH_USER_ASSIGNED_IDENTITY_RESOURCE_ID string = searchService.ou
 output AZURE_COSMOSDB_ACCOUNT string = (useAuthentication && useChatHistoryCosmos) ? cosmosDb!.outputs.name : ''
 output AZURE_CHAT_HISTORY_DATABASE string = chatHistoryDatabaseName
 output AZURE_CHAT_HISTORY_CONTAINER string = chatHistoryContainerName
-output AZURE_CHAT_HISTORY_VERSION string = chatHistoryVersion
 
 output AZURE_STORAGE_ACCOUNT string = storage.outputs.name
 output AZURE_STORAGE_CONTAINER string = storageContainerName
 output AZURE_STORAGE_RESOURCE_GROUP string = storageResourceGroup.name
 
 output AZURE_ADLS_STORAGE_ACCOUNT string = useCloudIngestionAcls ? adlsStorageAccountNameResolved : ''
-output AZURE_CLOUD_INGESTION_STORAGE_ACCOUNT string = useCloudIngestionAcls ? adlsStorageAccountNameResolved : storage.outputs.name
-output AZURE_CLOUD_INGESTION_STORAGE_RESOURCE_GROUP string = useCloudIngestionAcls ? adlsStorageResourceGroup.name : storageResourceGroup.name
+output AZURE_CLOUD_INGESTION_STORAGE_ACCOUNT string = useCloudIngestionAcls
+  ? adlsStorageAccountNameResolved
+  : storage.outputs.name
+output AZURE_CLOUD_INGESTION_STORAGE_RESOURCE_GROUP string = useCloudIngestionAcls
+  ? adlsStorageResourceGroup.name
+  : storageResourceGroup.name
 output USE_CLOUD_INGESTION_ACLS bool = useCloudIngestionAcls
 
 output AZURE_USERSTORAGE_ACCOUNT string = useUserUpload ? userStorage!.outputs.name : ''
@@ -1588,13 +1618,28 @@ output AZURE_USERSTORAGE_RESOURCE_GROUP string = storageResourceGroup.name
 output AZURE_IMAGESTORAGE_CONTAINER string = useMultimodal ? imageStorageContainerName : ''
 
 // Cloud ingestion function skill endpoints & resource IDs
-output DOCUMENT_EXTRACTOR_SKILL_ENDPOINT string = useCloudIngestion ? 'https://${functions!.outputs.documentExtractorUrl}/api/extract' : ''
-output FIGURE_PROCESSOR_SKILL_ENDPOINT string = useCloudIngestion ? 'https://${functions!.outputs.figureProcessorUrl}/api/process' : ''
-output TEXT_PROCESSOR_SKILL_ENDPOINT string = useCloudIngestion ? 'https://${functions!.outputs.textProcessorUrl}/api/process' : ''
+output DOCUMENT_EXTRACTOR_SKILL_ENDPOINT string = useCloudIngestion
+  ? 'https://${functions!.outputs.documentExtractorUrl}/api/extract'
+  : ''
+output FIGURE_PROCESSOR_SKILL_ENDPOINT string = useCloudIngestion
+  ? 'https://${functions!.outputs.figureProcessorUrl}/api/process'
+  : ''
+output TEXT_PROCESSOR_SKILL_ENDPOINT string = useCloudIngestion
+  ? 'https://${functions!.outputs.textProcessorUrl}/api/process'
+  : ''
+output DOCUMENT_INGESTER_ENDPOINT string = useCloudIngestion
+  ? 'https://${functions!.outputs.documentIngesterUrl}/api/ingest'
+  : ''
 // Identifier URI used as authResourceId for all custom skill endpoints
-output DOCUMENT_EXTRACTOR_SKILL_AUTH_RESOURCE_ID string = useCloudIngestion ? functions!.outputs.documentExtractorAuthIdentifierUri : ''
-output FIGURE_PROCESSOR_SKILL_AUTH_RESOURCE_ID string = useCloudIngestion ? functions!.outputs.figureProcessorAuthIdentifierUri : ''
-output TEXT_PROCESSOR_SKILL_AUTH_RESOURCE_ID string = useCloudIngestion ? functions!.outputs.textProcessorAuthIdentifierUri : ''
+output DOCUMENT_EXTRACTOR_SKILL_AUTH_RESOURCE_ID string = useCloudIngestion
+  ? functions!.outputs.documentExtractorAuthIdentifierUri
+  : ''
+output FIGURE_PROCESSOR_SKILL_AUTH_RESOURCE_ID string = useCloudIngestion
+  ? functions!.outputs.figureProcessorAuthIdentifierUri
+  : ''
+output TEXT_PROCESSOR_SKILL_AUTH_RESOURCE_ID string = useCloudIngestion
+  ? functions!.outputs.textProcessorAuthIdentifierUri
+  : ''
 
 output AZURE_AI_PROJECT string = useAiProject ? ai!.outputs.projectName : ''
 
@@ -1605,4 +1650,6 @@ output AZURE_CONTAINER_REGISTRY_ENDPOINT string = deploymentTarget == 'container
   ? containerApps!.outputs.registryLoginServer
   : ''
 
-output AZURE_VPN_CONFIG_DOWNLOAD_LINK string = useVpnGateway ? 'https://portal.azure.com/#@${tenant().tenantId}/resource${isolation!.outputs.virtualNetworkGatewayId}/pointtositeconfiguration' : ''
+output AZURE_VPN_CONFIG_DOWNLOAD_LINK string = useVpnGateway
+  ? 'https://portal.azure.com/#@${tenant().tenantId}/resource${isolation!.outputs.virtualNetworkGatewayId}/pointtositeconfiguration'
+  : ''

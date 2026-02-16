@@ -66,6 +66,17 @@ module searchIndexContributorRole '../core/security/role.bicep' = {
   }
 }
 
+// Search: Service Contributor (create/manage indexes via /api/setup)
+module searchServiceContributorRole '../core/security/role.bicep' = {
+  scope: resourceGroup(searchServiceResourceGroupName)
+  name: 'function-search-service-contributor-${uniqueString(principalId)}'
+  params: {
+    principalId: principalId
+    roleDefinitionId: '7ca78c08-252a-4471-8644-bb5ff32d4ba0' // Search Service Contributor
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // OpenAI: Cognitive Services OpenAI User
 module openAiUserRole '../core/security/role.bicep' = {
   scope: resourceGroup(openAiResourceGroupName)
