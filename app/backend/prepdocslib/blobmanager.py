@@ -532,6 +532,28 @@ class BlobManager(BaseBlobManager):
             logger.warning("Blob not found: %s", blob_path)
             return None
 
+    async def download_blob_by_suffix(
+        self, filename: str, container: Optional[str] = None
+    ) -> Optional[tuple[bytes, "BlobProperties"]]:
+        """
+        Searches for a blob whose name ends with the given filename in the specified container,
+        then downloads it. This is a fallback for when only a bare filename is available
+        (without the full blob path including subdirectories).
+        """
+        container_client = self.blob_service_client.get_container_client(container or self.container)
+        if not await container_client.exists():
+            return None
+
+        # List blobs and find one ending with the given filename
+        suffix = f"/{filename}"
+        async for blob in container_client.list_blobs():
+            if blob.name == filename or blob.name.endswith(suffix):
+                logger.info("Found blob by suffix match: %s", blob.name)
+                return await self.download_blob(blob.name, container=container)
+
+        logger.warning("No blob found ending with: %s", filename)
+        return None
+
     async def remove_blob(self, path: Optional[str] = None):
         container_client = self.blob_service_client.get_container_client(self.container)
         if not await container_client.exists():

@@ -83,6 +83,15 @@
     "searchFieldNameEmbedding": {
       "value": "${AZURE_SEARCH_FIELD_NAME_EMBEDDING=embedding3}"
     },
+    "searchSemanticConfiguration": {
+      "value": "${AZURE_SEARCH_SEMANTIC_CONFIGURATION=default}"
+    },
+    "kbFieldsContent": {
+      "value": "${KB_FIELDS_CONTENT=content}"
+    },
+    "kbFieldsSourcepage": {
+      "value": "${KB_FIELDS_SOURCEPAGE=sourcepage}"
+    },
     "defaultReasoningEffort": {
       "value": "${AZURE_OPENAI_REASONING_EFFORT=medium}"
     },

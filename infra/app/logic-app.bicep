@@ -37,8 +37,12 @@ var connectionNameExpr = trim('''
 @parameters('$connections')['sharepointonline']['connectionId']
 ''')
 
-var fileIdentifierExpr = trim('''
-@{encodeURIComponent(triggerOutputs()?['body/{Identifier}'])}
+var driveIdExpr = trim('''
+@triggerOutputs()?['body/{DriveId}']
+''')
+
+var driveItemIdExpr = trim('''
+@triggerOutputs()?['body/{DriveItemId}']
 ''')
 
 var filenameExpr = trim('''
@@ -47,10 +51,6 @@ var filenameExpr = trim('''
 
 var linkExpr = trim('''
 @triggerOutputs()?['body/{Link}']
-''')
-
-var fileContentBodyExpr = trim('''
-@body('Get_file_content')
 ''')
 
 var splitOnExpr = trim('''
@@ -122,40 +122,26 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
         }
       }
       actions: {
-        Get_file_content: {
-          type: 'ApiConnection'
-          runAfter: {}
-          inputs: {
-            host: {
-              connection: {
-                name: connectionNameExpr
-              }
-            }
-            method: 'get'
-            path: '${siteDatasetPath}/files/${fileIdentifierExpr}/content'
-          }
-        }
         Call_Document_Ingester: {
           type: 'Http'
-          runAfter: {
-            Get_file_content: [
-              'Succeeded'
-            ]
-          }
+          runAfter: {}
           inputs: {
             method: 'POST'
             uri: documentIngesterEndpoint
             headers: {
               'X-Filename': filenameExpr
               'X-Source-Url': linkExpr
-              'Content-Type': 'application/octet-stream'
+              'X-Drive-Id': driveIdExpr
+              'X-Drive-Item-Id': driveItemIdExpr
             }
-            body: fileContentBodyExpr
             authentication: {
               type: 'ManagedServiceIdentity'
               identity: identityId
               audience: documentIngesterAudience
             }
+          }
+          limit: {
+            timeout: 'PT30M'
           }
         }
       }

@@ -3,6 +3,7 @@ Azure Function: Document Ingester
 Receives documents from Logic Apps, extracts text/images, embeds, and pushes to Azure AI Search.
 """
 
+import asyncio
 import io
 import json
 import logging
@@ -10,6 +11,8 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import unquote
+
+import httpx
 
 import azure.functions as func
 from azure.core.exceptions import HttpResponseError
@@ -29,6 +32,7 @@ from prepdocslib.servicesetup import (
     setup_blob_manager,
     setup_embeddings_service,
     setup_figure_processor,
+    setup_image_embeddings_service,
     setup_openai_client,
     setup_search_info,
 )
@@ -48,6 +52,8 @@ class GlobalSettings:
     blob_manager: BlobManager
     embeddings: OpenAIEmbeddings
     figure_processor: Optional[FigureProcessor]
+    image_embeddings: object  # Optional[ImageEmbeddings]
+    use_multimodal: bool
     search_info: SearchInfo
     search_manager: SearchManager
     splitter: SentenceTextSplitter
@@ -56,6 +62,31 @@ class GlobalSettings:
 
 settings: GlobalSettings | None = None
 _index_ensured = False
+
+
+async def download_from_sharepoint(drive_id: str, item_id: str) -> bytes | None:
+    """Download a file from SharePoint via Microsoft Graph API.
+
+    Uses the function's managed identity to authenticate. Graph's /content
+    endpoint returns a 302 redirect to the actual download URL.
+    """
+    if settings is None:
+        return None
+
+    token = settings.azure_credential.get_token("https://graph.microsoft.com/.default")
+    access_token = (await token).token
+
+    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}/content"
+    logger.info("Downloading drive=%s item=%s from SharePoint via Graph API", drive_id, item_id)
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
+        resp = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
+        if resp.status_code != 200:
+            logger.error("Graph API download failed: %s %s", resp.status_code, resp.text[:500])
+            return None
+
+    logger.info("Downloaded %d bytes from SharePoint", len(resp.content))
+    return resp.content
 
 
 def configure_global_settings():
@@ -79,6 +110,7 @@ def configure_global_settings():
     use_multimodal = os.getenv("USE_MULTIMODAL", "false").lower() == "true"
     use_content_understanding = os.getenv("USE_MEDIA_DESCRIBER_AZURE_CU", "false").lower() == "true"
     content_understanding_endpoint = os.getenv("AZURE_CONTENTUNDERSTANDING_ENDPOINT")
+    vision_endpoint = os.getenv("AZURE_VISION_ENDPOINT")
     document_intelligence_service = os.getenv("AZURE_DOCUMENTINTELLIGENCE_SERVICE")
     storage_account = os.getenv("AZURE_CLOUD_INGESTION_STORAGE_ACCOUNT") or os.environ["AZURE_STORAGE_ACCOUNT"]
     storage_container = os.environ["AZURE_STORAGE_CONTAINER"]
@@ -109,9 +141,9 @@ def configure_global_settings():
         parsed = urlparse(azure_openai_custom_url)
         azure_openai_endpoint = f"{parsed.scheme}://{parsed.netloc}"
 
-    # Always extract and describe figures from documents using GPT-4o.
-    # This is independent of USE_MULTIMODAL (which controls image *vector* embeddings in search).
-    # Figures are described as text, embedded as text, and the images stored in blob storage.
+    # Always extract figures from documents (images are uploaded to blob for UI display).
+    # When multimodal is enabled, GPT-4o descriptions are skipped — multimodal embeddings
+    # handle retrieval directly. Otherwise, figures are described and embedded as text.
     process_figures = True
 
     # File processors (parsers)
@@ -124,7 +156,7 @@ def configure_global_settings():
         process_figures=process_figures,
     )
 
-    # Figure processor — always use GPT-4o to describe extracted figures
+    # Figure processor — GPT-4o descriptions (used as fallback when multimodal is disabled)
     figure_processor = setup_figure_processor(
         credential=azure_credential,
         use_multimodal=True,
@@ -155,19 +187,27 @@ def configure_global_settings():
         azure_openai_endpoint=azure_openai_endpoint,
     )
 
+    # Image embeddings (multimodal)
+    image_embeddings = setup_image_embeddings_service(
+        azure_credential=azure_credential,
+        vision_endpoint=vision_endpoint,
+        use_multimodal=use_multimodal,
+    )
+
     # Search
     search_info = setup_search_info(
         search_service=search_service,
         index_name=search_index,
         azure_credential=azure_credential,
         azure_openai_endpoint=azure_openai_endpoint,
+        azure_vision_endpoint=vision_endpoint,
     )
 
     search_manager = SearchManager(
         search_info=search_info,
         embeddings=embeddings,
         field_name_embedding=field_name_embedding,
-        search_images=False,
+        search_images=use_multimodal,
     )
 
     settings = GlobalSettings(
@@ -176,6 +216,8 @@ def configure_global_settings():
         blob_manager=blob_manager,
         embeddings=embeddings,
         figure_processor=figure_processor,
+        image_embeddings=image_embeddings,
+        use_multimodal=use_multimodal,
         search_info=search_info,
         search_manager=search_manager,
         splitter=SentenceTextSplitter(),
@@ -192,8 +234,10 @@ async def ingest_document(req: func.HttpRequest) -> func.HttpResponse:
     Headers:
         X-Filename: Original filename (e.g. slides.pptx)
         X-Source-Url: Optional source URL for the document
+        X-Drive-Id: SharePoint drive ID (used when body is empty)
+        X-Drive-Item-Id: SharePoint drive item ID (used when body is empty)
     Body:
-        Raw file bytes
+        Raw file bytes (optional if drive headers are provided)
     """
     if settings is None:
         return func.HttpResponse(
@@ -218,12 +262,24 @@ async def ingest_document(req: func.HttpRequest) -> func.HttpResponse:
 
     source_url = req.headers.get("X-Source-Url")
     document_bytes = req.get_body()
+
     if not document_bytes:
-        return func.HttpResponse(
-            json.dumps({"error": "Request body is empty"}),
-            mimetype="application/json",
-            status_code=400,
-        )
+        drive_id = req.headers.get("X-Drive-Id")
+        drive_item_id = req.headers.get("X-Drive-Item-Id")
+        if drive_id and drive_item_id:
+            document_bytes = await download_from_sharepoint(drive_id, drive_item_id)
+            if not document_bytes:
+                return func.HttpResponse(
+                    json.dumps({"error": "Failed to download file from SharePoint via Graph API"}),
+                    mimetype="application/json",
+                    status_code=502,
+                )
+        else:
+            return func.HttpResponse(
+                json.dumps({"error": "Request body is empty and X-Drive-Id/X-Drive-Item-Id headers are missing"}),
+                mimetype="application/json",
+                status_code=400,
+            )
 
     try:
         chunks_indexed = await process_and_index_document(filename, document_bytes, source_url)
@@ -279,16 +335,25 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
 
         extract_and_merge_office_images(filename, document_bytes, pages)
 
-    # 3. Process figures (describe with GPT-4o, upload to blob)
-    for page in pages:
-        for image in page.images:
-            await process_page_image(
-                image=image,
-                document_filename=filename,
-                blob_manager=settings.blob_manager,
-                image_embeddings_client=None,
-                figure_processor=settings.figure_processor,
-            )
+    # 3. Process figures (upload to blob + describe or embed) — parallelized
+    # When multimodal is enabled, skip GPT-4o descriptions (multimodal embeddings handle retrieval)
+    # but still upload images to blob storage for UI display.
+    all_images = [image for page in pages for image in page.images]
+    if all_images:
+        sem = asyncio.Semaphore(10)
+
+        async def _process(img):
+            async with sem:
+                return await process_page_image(
+                    image=img,
+                    document_filename=filename,
+                    blob_manager=settings.blob_manager,
+                    image_embeddings_client=settings.image_embeddings,
+                    figure_processor=None if settings.use_multimodal else settings.figure_processor,
+                )
+
+        logger.info("Processing %d figures concurrently for %s", len(all_images), filename)
+        await asyncio.gather(*[_process(img) for img in all_images])
 
     # 4. Chunk text (combines text with figure descriptions, then splits)
     file_obj = File(content=io.BytesIO(document_bytes))

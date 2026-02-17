@@ -117,14 +117,48 @@ const collectCitations = (answer: ChatAppResponse, isStreaming: boolean): { frag
             return;
         }
 
-        const isValidCitation = possibleCitations.some(citation => citation.endsWith(part));
-        if (!isValidCitation) {
+        let matchingCitation: string | undefined;
+
+        // Priority 1: Check if next text part has a trailing image filename (markdown link syntax)
+        // LLM outputs [file.pptx#slide=N](image_name.png) — regex splits so the (image.png) is at start of next text part
+        // We check this FIRST because the text citation (file.pptx#slide=N) would also match via endsWith,
+        // but we want the image blob path so the Citation tab can display the actual image.
+        if (index + 1 < parts.length) {
+            const nextText = parts[index + 1];
+            const trailingMatch = nextText.match(/^\(([^)]+\.(png|jpg|jpeg))\)/i);
+            if (trailingMatch) {
+                const imageFilename = trailingMatch[1];
+                const imageCitation = possibleCitations.find(citation => citation.endsWith(imageFilename));
+                if (imageCitation) {
+                    matchingCitation = imageCitation;
+                    // Strip the consumed parenthetical from the next text part
+                    parts[index + 1] = nextText.substring(trailingMatch[0].length);
+                }
+            }
+        }
+
+        // Priority 2: Direct match — citation text matches a known citation suffix
+        if (!matchingCitation) {
+            matchingCitation = possibleCitations.find(citation => citation.endsWith(part));
+        }
+
+        // Priority 3: Parenthetical inside brackets — [file.pptx#slide=N(image_name.png)]
+        if (!matchingCitation) {
+            const imageMatch = part.match(/\(([^)]+)\)$/);
+            if (imageMatch) {
+                const imageFilename = imageMatch[1];
+                matchingCitation = possibleCitations.find(citation => citation.endsWith(imageFilename));
+            }
+        }
+
+        if (!matchingCitation) {
             fragments.push({ type: "text", value: `[${part}]` });
             return;
         }
 
-        // Resolve SharePoint filename to URL if applicable
-        const resolvedReference = resolveSharePointUrl(part);
+        // Use the full citation from the array (not the LLM's partial text)
+        // then resolve SharePoint filename to URL if applicable
+        const resolvedReference = resolveSharePointUrl(matchingCitation);
 
         // Check if this resolved reference already exists
         const existing = citationMap.get(resolvedReference);

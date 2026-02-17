@@ -89,6 +89,9 @@ param searchQueryLanguage string // Set in main.parameters.json
 param searchQuerySpeller string // Set in main.parameters.json
 param searchServiceSemanticRankerLevel string // Set in main.parameters.json
 param searchFieldNameEmbedding string // Set in main.parameters.json
+param searchSemanticConfiguration string // Set in main.parameters.json
+param kbFieldsContent string // Set in main.parameters.json
+param kbFieldsSourcepage string // Set in main.parameters.json
 var actualSearchServiceSemanticRankerLevel = (searchServiceSkuName == 'free')
   ? 'disabled'
   : searchServiceSemanticRankerLevel
@@ -575,7 +578,10 @@ var appEnvVariables = {
   USE_USER_UPLOAD: useUserUpload
   AZURE_USERSTORAGE_ACCOUNT: useUserUpload ? userStorage!.outputs.name : ''
   AZURE_USERSTORAGE_CONTAINER: useUserUpload ? userStorageContainerName : ''
-  AZURE_IMAGESTORAGE_CONTAINER: useMultimodal ? imageStorageContainerName : ''
+  AZURE_IMAGESTORAGE_CONTAINER: imageStorageContainerName
+  KB_FIELDS_CONTENT: kbFieldsContent
+  KB_FIELDS_SOURCEPAGE: kbFieldsSourcepage
+  AZURE_SEARCH_SEMANTIC_CONFIGURATION: searchSemanticConfiguration
   AZURE_DOCUMENTINTELLIGENCE_SERVICE: documentIntelligence.outputs.name
   USE_LOCAL_PDF_PARSER: useLocalPdfParser
   USE_LOCAL_HTML_PARSER: useLocalHtmlParser
@@ -1656,7 +1662,7 @@ output AZURE_USERSTORAGE_ACCOUNT string = useUserUpload ? userStorage!.outputs.n
 output AZURE_USERSTORAGE_CONTAINER string = userStorageContainerName
 output AZURE_USERSTORAGE_RESOURCE_GROUP string = storageResourceGroup.name
 
-output AZURE_IMAGESTORAGE_CONTAINER string = useMultimodal ? imageStorageContainerName : ''
+output AZURE_IMAGESTORAGE_CONTAINER string = imageStorageContainerName
 
 // Cloud ingestion function skill endpoints & resource IDs
 output DOCUMENT_EXTRACTOR_SKILL_ENDPOINT string = useCloudIngestion

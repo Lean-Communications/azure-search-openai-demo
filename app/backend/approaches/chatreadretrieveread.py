@@ -102,6 +102,41 @@ class ChatReadRetrieveReadApproach(Approach):
         self.use_sharepoint_source = use_sharepoint_source
         self.retrieval_reasoning_effort = retrieval_reasoning_effort
 
+    @staticmethod
+    def sanitize_past_messages(messages: list) -> list:
+        """Strip markdown image references from assistant messages.
+
+        The prompty template parser interprets ![...](file.png) as local file
+        paths and tries to open them, causing FileNotFoundError on multi-turn
+        conversations where the previous answer contained image citations.
+        """
+        sanitized = []
+        for msg in messages:
+            if msg.get("role") == "assistant" and isinstance(msg.get("content"), str):
+                content = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", msg["content"])
+                sanitized.append({**msg, "content": content})
+            else:
+                sanitized.append(msg)
+        return sanitized
+
+    @staticmethod
+    def downscale_image_detail(messages: list) -> list:
+        """Set detail='low' on all image_url content parts to reduce token usage.
+
+        At 'auto'/'high' detail, each image can consume 5,000-10,000+ tokens.
+        At 'low' detail, each image uses only 85 tokens — critical for staying
+        within rate limits on gpt-4o-mini.
+        """
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "image_url":
+                        image_url = part.get("image_url", {})
+                        if isinstance(image_url, dict):
+                            image_url["detail"] = "low"
+        return messages
+
     def extract_followup_questions(self, content: Optional[str]):
         if content is None:
             return content, []
@@ -304,13 +339,14 @@ class ChatReadRetrieveReadApproach(Approach):
             self.get_system_prompt_variables(overrides.get("prompt_template"))
             | {
                 "include_follow_up_questions": bool(overrides.get("suggest_followup_questions")),
-                "past_messages": messages[:-1],
+                "past_messages": self.sanitize_past_messages(messages[:-1]),
                 "user_query": original_user_query,
                 "text_sources": extra_info.data_points.text,
                 "image_sources": extra_info.data_points.images,
                 "citations": extra_info.data_points.citations,
             },
         )
+        self.downscale_image_detail(messages)
 
         chat_coroutine = cast(
             Awaitable[ChatCompletion] | Awaitable[AsyncStream[ChatCompletionChunk]],
@@ -359,11 +395,15 @@ class ChatReadRetrieveReadApproach(Approach):
         if not isinstance(original_user_query, str):
             raise ValueError("The most recent message content must be a string.")
 
+        # Sanitize past messages to prevent the prompty parser from interpreting
+        # image references in assistant responses as local file paths
+        safe_past_messages = self.sanitize_past_messages(messages[:-1])
+
         # STEP 1: Generate an optimized keyword search query based on the chat history and the last question
 
         rewrite_result = await self.rewrite_query(
             prompt_template=self.query_rewrite_prompt,
-            prompt_variables={"user_query": original_user_query, "past_messages": messages[:-1]},
+            prompt_variables={"user_query": original_user_query, "past_messages": safe_past_messages},
             overrides=overrides,
             chatgpt_model=self.chatgpt_model,
             chatgpt_deployment=self.chatgpt_deployment,

@@ -103,7 +103,14 @@ export const Answer = ({
 
             <Stack.Item grow>
                 <div className={styles.answerText}>
-                    <ReactMarkdown children={sanitizedAnswerHtml} rehypePlugins={[rehypeRaw]} remarkPlugins={[remarkGfm]} />
+                    <ReactMarkdown
+                        children={sanitizedAnswerHtml}
+                        rehypePlugins={[rehypeRaw]}
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                            img: () => null
+                        }}
+                    />
                 </div>
             </Stack.Item>
 

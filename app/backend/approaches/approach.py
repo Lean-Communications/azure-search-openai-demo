@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 import re
 from abc import ABC
 from collections.abc import AsyncGenerator, Awaitable
@@ -73,6 +74,7 @@ class Document:
     reranker_score: Optional[float] = None
     activity: Optional[ActivityDetail] = None
     images: Optional[list[dict[str, Any]]] = None
+    image_url: Optional[str] = None
 
     def serialize_for_results(self) -> dict[str, Any]:
         result_dict = {
@@ -351,6 +353,7 @@ class Approach(ABC):
                         score=document.get("@search.score"),
                         reranker_score=document.get("@search.reranker_score"),
                         images=document.get("images"),
+                        image_url=document.get("imageUrl"),
                     )
                 )
 
@@ -611,6 +614,7 @@ class Approach(ABC):
                         groups=ref.source_data.get("groups"),
                         reranker_score=getattr(ref, "reranker_score", None),
                         images=ref.source_data.get("images"),
+                        image_url=ref.source_data.get("imageUrl"),
                         activity=activity_details_by_id[ref.activity_source],
                     )
                 )
@@ -784,6 +788,16 @@ class Approach(ABC):
                         image_sources.append(url)
                     image_citation = self.get_image_citation(doc.sourcepage or "", img["url"])
                     citations.append(image_citation)
+
+            # Download top-level imageUrl (not gated by search_images)
+            logging.info("doc.image_url=%s for sourcepage=%s", doc.image_url, doc.sourcepage)
+            if doc.image_url and doc.image_url not in seen_urls:
+                seen_urls.add(doc.image_url)
+                b64 = await self.download_blob_as_base64(doc.image_url, user_oid=user_oid)
+                if b64:
+                    image_sources.append(b64)
+                    image_citation = self.get_image_citation(doc.sourcepage or "", doc.image_url)
+                    citations.append(image_citation)
         if web_results:
             for web in web_results:
                 citation = self.get_citation(web.url)
@@ -834,9 +848,15 @@ class Approach(ABC):
         return sourcepage or ""
 
     def get_image_citation(self, sourcepage: Optional[str], image_url: str):
-        sourcepage_citation = self.get_citation(sourcepage)
-        image_filename = image_url.split("/")[-1]
-        return f"{sourcepage_citation}({image_filename})"
+        # Extract the blob path from the full URL (everything after the container segment)
+        # e.g. "https://account.blob.../images/Presentation.pptx/page2/img.jpg" → "Presentation.pptx/page2/img.jpg"
+        if image_url.startswith("http"):
+            parts = image_url.split("/")
+            blob_path = "/".join(parts[4:])  # Skip scheme, empty, host, container
+        else:
+            blob_path = image_url
+        logging.info("get_image_citation: image_url=%s -> blob_path=%s", image_url, blob_path)
+        return blob_path
 
     async def download_blob_as_base64(self, blob_url: str, user_oid: Optional[str] = None) -> Optional[str]:
         """

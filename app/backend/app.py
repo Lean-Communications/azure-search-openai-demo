@@ -133,7 +133,7 @@ async def assets(path):
     return await send_from_directory(Path(__file__).resolve().parent / "static" / "assets", path)
 
 
-@bp.route("/content/<path>")
+@bp.route("/content/<path:path>")
 @authenticated_path
 async def content_file(path: str, auth_claims: dict[str, Any]):
     """
@@ -153,6 +153,16 @@ async def content_file(path: str, auth_claims: dict[str, Any]):
 
     # Get bytes and properties from the blob manager
     result = await blob_manager.download_blob(path)
+
+    # If not found in main container, try the images container
+    if result is None and blob_manager.image_container:
+        current_app.logger.info("Path not found in main container, trying images container: %s", path)
+        result = await blob_manager.download_blob(path, container=blob_manager.image_container)
+
+    # If still not found and path is a bare filename (no /), search images container by suffix
+    if result is None and blob_manager.image_container and "/" not in path:
+        current_app.logger.info("Searching images container for blob ending with: %s", path)
+        result = await blob_manager.download_blob_by_suffix(path, container=blob_manager.image_container)
 
     if result is None:
         current_app.logger.info("Path not found in general Blob container: %s", path)
