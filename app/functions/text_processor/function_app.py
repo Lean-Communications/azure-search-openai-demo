@@ -93,6 +93,13 @@ def configure_global_settings():
                 azure_openai_service=azure_openai_service,
                 azure_openai_custom_url=azure_openai_custom_url,
             )
+            # For azure_custom, derive endpoint from the custom URL (strip /openai/v1 suffix)
+            if azure_openai_endpoint is None and azure_openai_custom_url:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(azure_openai_custom_url)
+                azure_openai_endpoint = f"{parsed.scheme}://{parsed.netloc}"
+
             embedding_service = setup_embeddings_service(
                 openai_host,
                 openai_client,

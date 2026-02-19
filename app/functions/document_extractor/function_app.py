@@ -249,6 +249,13 @@ async def process_document(data: dict[str, Any]) -> dict[str, Any]:
     finally:
         document_stream.close()
 
+    # Extract embedded images from Office documents (PPTX/DOCX)
+    ext = os.path.splitext(blob_path_within_container)[1].lower()
+    if ext in (".pptx", ".docx"):
+        from prepdocslib.officeimageextractor import extract_and_merge_office_images
+
+        extract_and_merge_office_images(blob_path_within_container, document_bytes, pages)
+
     # Extract ACLs if using ADLS Gen2 storage
     oids: list[str] = []
     groups: list[str] = []

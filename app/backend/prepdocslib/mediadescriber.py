@@ -152,7 +152,7 @@ class MultimodalModelDescriber(MediaDescriber):
                                     "text": "Describe image with no more than 5 sentences. Do not speculate about anything you don't know.",
                                     "type": "text",
                                 },
-                                {"image_url": {"url": image_datauri, "detail": "auto"}, "type": "image_url"},
+                                {"image_url": {"url": image_datauri, "detail": "low"}, "type": "image_url"},
                             ],
                         },
                     ],

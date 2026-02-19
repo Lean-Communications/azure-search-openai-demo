@@ -338,9 +338,20 @@ class CloudIngestionStrategy(Strategy):  # pragma: no cover
                 container=SearchIndexerDataContainer(name=self.blob_manager.container),
                 data_deletion_detection_policy=NativeBlobSoftDeleteDeletionDetectionPolicy(),
             )
+            # Fetch existing etag to avoid conflicting update errors
+            try:
+                existing_ds = await indexer_client.get_data_source_connection(self.data_source_name)
+                data_source_connection._e_tag = existing_ds._e_tag
+            except Exception:
+                pass  # Data source doesn't exist yet, will be created
             await indexer_client.create_or_update_data_source_connection(data_source_connection)
 
             skillset = self._build_skillset()
+            try:
+                existing_skillset = await indexer_client.get_skillset(self.skillset_name)
+                skillset._e_tag = existing_skillset._e_tag
+            except Exception:
+                pass
             await indexer_client.create_or_update_skillset(skillset)
 
             indexer = SearchIndexer(
@@ -357,6 +368,11 @@ class CloudIngestionStrategy(Strategy):  # pragma: no cover
                     )
                 ),
             )
+            try:
+                existing_indexer = await indexer_client.get_indexer(self.indexer_name)
+                indexer._e_tag = existing_indexer._e_tag
+            except Exception:
+                pass
             await indexer_client.create_or_update_indexer(indexer)
 
     async def run(self) -> None:

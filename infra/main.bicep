@@ -767,7 +767,7 @@ module logicApp 'app/logic-app.bicep' = if (useSharePointIngestion) {
     sharepointLibraryId: sharepointLibraryId
     sharepointFolderPath: sharepointFolderPath
     pollingIntervalMinutes: sharepointPollingIntervalMinutes
-    documentIngesterEndpoint: 'https://${functions!.outputs.documentIngesterUrl}/api/ingest'
+    documentIngesterEndpoint: 'https://${functions!.outputs.documentIngesterUrl}/api/store'
     documentIngesterAudience: functions!.outputs.documentIngesterAuthIdentifierUri
     identityId: logicAppIdentity!.outputs.resourceId
   }

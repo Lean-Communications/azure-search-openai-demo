@@ -124,6 +124,9 @@ def configure_global_settings():
     openai_service = os.getenv("AZURE_OPENAI_SERVICE")
     chatgpt_model = os.getenv("AZURE_OPENAI_CHATGPT_MODEL", "gpt-4o")
     chatgpt_deployment = os.getenv("AZURE_OPENAI_CHATGPT_DEPLOYMENT", chatgpt_model)
+    # Use gpt-4o-mini for figure descriptions — much faster and cheaper than gpt-4o
+    figure_model = os.getenv("AZURE_OPENAI_FIGURE_MODEL", "gpt-4o-mini")
+    figure_deployment = os.getenv("AZURE_OPENAI_FIGURE_DEPLOYMENT", figure_model)
 
     # OpenAI client
     azure_openai_custom_url = os.getenv("AZURE_OPENAI_CUSTOM_URL")
@@ -156,15 +159,15 @@ def configure_global_settings():
         process_figures=process_figures,
     )
 
-    # Figure processor — GPT-4o descriptions (used as fallback when multimodal is disabled)
+    # Figure processor — uses gpt-4o-mini for fast image descriptions
     figure_processor = setup_figure_processor(
         credential=azure_credential,
         use_multimodal=True,
         use_content_understanding=use_content_understanding,
         content_understanding_endpoint=content_understanding_endpoint,
         openai_client=openai_client,
-        openai_model=chatgpt_model,
-        openai_deployment=chatgpt_deployment,
+        openai_model=figure_model,
+        openai_deployment=figure_deployment,
     )
 
     # Blob manager (for uploading extracted images)
@@ -335,12 +338,12 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
 
         extract_and_merge_office_images(filename, document_bytes, pages)
 
-    # 3. Process figures (upload to blob + describe or embed) — parallelized
-    # When multimodal is enabled, skip GPT-4o descriptions (multimodal embeddings handle retrieval)
-    # but still upload images to blob storage for UI display.
+    # 3. Process figures (upload to blob + describe + embed) — parallelized
+    # Always generate GPT-4o descriptions so images are findable via text search.
+    # When multimodal is also enabled, images additionally get visual embeddings.
     all_images = [image for page in pages for image in page.images]
     if all_images:
-        sem = asyncio.Semaphore(10)
+        sem = asyncio.Semaphore(30)
 
         async def _process(img):
             async with sem:
@@ -349,7 +352,7 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
                     document_filename=filename,
                     blob_manager=settings.blob_manager,
                     image_embeddings_client=settings.image_embeddings,
-                    figure_processor=None if settings.use_multimodal else settings.figure_processor,
+                    figure_processor=settings.figure_processor,
                 )
 
         logger.info("Processing %d figures concurrently for %s", len(all_images), filename)
@@ -400,6 +403,76 @@ async def setup_index(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.error("Error creating index: %s", str(e), exc_info=True)
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.function_name(name="store")
+@app.route(route="store", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+async def store_document(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Lightweight endpoint: download from SharePoint and upload to blob storage.
+    No parsing or processing — the Azure AI Search indexer handles that.
+
+    Headers:
+        X-Filename: Original filename (e.g. slides.pptx)
+        X-Drive-Id: SharePoint drive ID
+        X-Drive-Item-Id: SharePoint drive item ID
+    Body:
+        Raw file bytes (optional if drive headers are provided)
+    """
+    if settings is None:
+        return func.HttpResponse(
+            json.dumps({"error": "Settings not initialized"}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+    raw_filename = req.headers.get("X-Filename")
+    if not raw_filename:
+        return func.HttpResponse(
+            json.dumps({"error": "X-Filename header is required"}),
+            mimetype="application/json",
+            status_code=400,
+        )
+    filename = unquote(raw_filename)
+
+    document_bytes = req.get_body()
+
+    if not document_bytes:
+        drive_id = req.headers.get("X-Drive-Id")
+        drive_item_id = req.headers.get("X-Drive-Item-Id")
+        if drive_id and drive_item_id:
+            document_bytes = await download_from_sharepoint(drive_id, drive_item_id)
+            if not document_bytes:
+                return func.HttpResponse(
+                    json.dumps({"error": "Failed to download file from SharePoint via Graph API"}),
+                    mimetype="application/json",
+                    status_code=502,
+                )
+        else:
+            return func.HttpResponse(
+                json.dumps({"error": "Request body is empty and X-Drive-Id/X-Drive-Item-Id headers are missing"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+    try:
+        container_client = settings.blob_manager.blob_service_client.get_container_client(
+            os.environ["AZURE_STORAGE_CONTAINER"]
+        )
+        await container_client.upload_blob(name=filename, data=document_bytes, overwrite=True)
+        logger.info("Stored %s (%d bytes) in blob storage", filename, len(document_bytes))
+        return func.HttpResponse(
+            json.dumps({"status": "stored", "filename": filename, "size": len(document_bytes)}),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.error("Error storing %s: %s", filename, str(e), exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",

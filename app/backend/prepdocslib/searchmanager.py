@@ -376,6 +376,30 @@ class SearchManager:
                     )
                     await search_index_client.create_or_update_index(existing_index)
 
+                if self.use_parent_index_projection:
+                    # Index projections require the key field to have the keyword analyzer.
+                    # Azure Search does not allow modifying the key field, so the index must
+                    # be deleted and recreated if it was originally created without it.
+                    id_field = next((f for f in existing_index.fields if f.name == "id" and f.key), None)
+                    needs_recreate = id_field is not None and getattr(id_field, "analyzer_name", None) != "keyword"
+                    needs_parent_id = not any(field.name == "parent_id" for field in existing_index.fields)
+
+                    if needs_recreate:
+                        logger.info(
+                            "Deleting and recreating index %s (key field requires keyword analyzer for index projections)",
+                            self.search_info.index_name,
+                        )
+                        await search_index_client.delete_index(self.search_info.index_name)
+                        # Re-enter create_index to build from scratch with correct schema
+                        return await self.create_index()
+
+                    if needs_parent_id:
+                        logger.info("Adding parent_id field to existing index %s", self.search_info.index_name)
+                        existing_index.fields.append(
+                            SearchableField(name="parent_id", type="Edm.String", filterable=True)
+                        )
+                        await search_index_client.create_or_update_index(existing_index)
+
                 if embedding_field and not any(
                     field.name == self.field_name_embedding for field in existing_index.fields
                 ):

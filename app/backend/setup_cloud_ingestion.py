@@ -92,15 +92,23 @@ async def setup_cloud_ingestion_strategy(
 
     # Setup OpenAI embeddings
     OPENAI_HOST = OpenAIHost(os.environ["OPENAI_HOST"])
+    azure_openai_custom_url = os.getenv("AZURE_OPENAI_CUSTOM_URL")
     openai_client, azure_openai_endpoint = setup_openai_client(
         openai_host=OPENAI_HOST,
         azure_credential=azure_credential,
         azure_openai_service=os.getenv("AZURE_OPENAI_SERVICE"),
-        azure_openai_custom_url=os.getenv("AZURE_OPENAI_CUSTOM_URL"),
+        azure_openai_custom_url=azure_openai_custom_url,
         azure_openai_api_key=os.getenv("AZURE_OPENAI_API_KEY_OVERRIDE"),
         openai_api_key=clean_key_if_exists(os.getenv("OPENAI_API_KEY")),
         openai_organization=os.getenv("OPENAI_ORGANIZATION"),
     )
+
+    # For azure_custom, derive endpoint from the custom URL (strip /openai/v1 suffix)
+    if azure_openai_endpoint is None and azure_openai_custom_url:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(azure_openai_custom_url)
+        azure_openai_endpoint = f"{parsed.scheme}://{parsed.netloc}"
 
     emb_model_dimensions = 1536
     if os.getenv("AZURE_OPENAI_EMB_DIMENSIONS"):
@@ -169,6 +177,8 @@ async def main():
         logger.info("Connecting to Azure services using the azd credential for home tenant")
         azd_credential = AzureDeveloperCliCredential(process_timeout=60)
 
+    blob_manager = None
+    openai_client = None
     try:
         ingestion_strategy, openai_client, credential, blob_manager = await setup_cloud_ingestion_strategy(
             azure_credential=azd_credential,
@@ -182,8 +192,10 @@ async def main():
         await ingestion_strategy.run()
 
     finally:
-        await blob_manager.close_clients()
-        await openai_client.close()
+        if blob_manager:
+            await blob_manager.close_clients()
+        if openai_client:
+            await openai_client.close()
         await azd_credential.close()
 
 
