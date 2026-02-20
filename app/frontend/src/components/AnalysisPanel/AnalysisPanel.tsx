@@ -1,5 +1,6 @@
 import { useMsal } from "@azure/msal-react";
 import { Pivot, PivotItem } from "@fluentui/react";
+import DOMPurify from "dompurify";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -67,7 +68,10 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
             return null;
         }
 
-        const fileExtension = activeCitation.split(".").pop()?.toLowerCase();
+        // Strip the hash (e.g. #slide=249) before extracting the file extension
+        const urlWithoutHash = activeCitation.split("#")[0];
+        const fileExtension = urlWithoutHash.split(".").pop()?.toLowerCase();
+
         switch (fileExtension) {
             case "png":
             case "jpg":
@@ -75,6 +79,29 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
                 return <img src={citation} className={styles.citationImg} alt="Citation Image" />;
             case "md":
                 return <MarkdownViewer src={activeCitation} />;
+            case "pptx":
+            case "docx": {
+                // Extract citation reference: "/content/File.pptx#slide=249" → "File.pptx#slide=249"
+                const citationRef = activeCitation.replace(/^\/content\//, "");
+                const textItems = answer.context.data_points?.text ?? [];
+                const matchingChunks = textItems
+                    .filter(item => item.startsWith(citationRef + ": "))
+                    .map(item => {
+                        const content = item.substring(item.indexOf(": ") + 2);
+                        return DOMPurify.sanitize(content);
+                    });
+
+                if (matchingChunks.length > 0) {
+                    return (
+                        <div className={styles.citationContent}>
+                            {matchingChunks.map((html, i) => (
+                                <div key={i} dangerouslySetInnerHTML={{ __html: html }} />
+                            ))}
+                        </div>
+                    );
+                }
+                return <iframe title="Citation" src={citation} width="100%" height={citationHeight} />;
+            }
             default:
                 return <iframe title="Citation" src={citation} width="100%" height={citationHeight} />;
         }

@@ -82,6 +82,17 @@
     object-fit: contain;
 }
 
+.citationContent {
+    overflow-y: auto;
+    padding: 1rem;
+    max-height: 100%;
+}
+
+.citationContent img {
+    max-width: 100%;
+    height: auto;
+}
+
 .header {
     color: #123bb6;
     position: relative;
