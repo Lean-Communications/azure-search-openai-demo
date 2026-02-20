@@ -107,6 +107,17 @@ h2 {
     gap: 0.375em;
 }
 
+.sourceLink {
+    font-size: 0.85em;
+    color: #123bb6;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.sourceLink:hover {
+    text-decoration: underline;
+}
+
 sup {
     position: relative;
     display: inline-flex;

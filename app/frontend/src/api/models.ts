@@ -73,6 +73,7 @@ export type DataPoints = {
     images: string[];
     citations: string[];
     citation_activity_details?: Record<string, CitationActivityDetail>;
+    citation_source_urls?: Record<string, string>;
     external_results_metadata?: ExternalResultMetadata[];
 };
 

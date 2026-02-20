@@ -147,6 +147,18 @@ export const Answer = ({
                                         >
                                             {`${displayIndex}. ${reference}`}
                                         </a>
+                                        {citation.sourceUrl && (
+                                            <a
+                                                className={styles.sourceLink}
+                                                href={citation.sourceUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                title="Open original in SharePoint"
+                                                onClick={e => e.stopPropagation()}
+                                            >
+                                                &#x2197;
+                                            </a>
+                                        )}
                                     </span>
                                 );
                             }

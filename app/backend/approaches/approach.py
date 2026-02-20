@@ -75,6 +75,7 @@ class Document:
     activity: Optional[ActivityDetail] = None
     images: Optional[list[dict[str, Any]]] = None
     image_url: Optional[str] = None
+    storage_url: Optional[str] = None
 
     def serialize_for_results(self) -> dict[str, Any]:
         result_dict = {
@@ -84,6 +85,7 @@ class Document:
             "category": self.category,
             "sourcepage": self.sourcepage,
             "sourcefile": self.sourcefile,
+            "storage_url": self.storage_url,
             "oids": self.oids,
             "groups": self.groups,
             "captions": (
@@ -186,6 +188,7 @@ class DataPoints:
     citations: Optional[list[str]] = None
     external_results_metadata: Optional[list[dict[str, Any]]] = None
     citation_activity_details: Optional[dict[str, dict[str, Any]]] = None
+    citation_source_urls: Optional[dict[str, str]] = None
 
 
 @dataclass
@@ -354,6 +357,7 @@ class Approach(ABC):
                         reranker_score=document.get("@search.reranker_score"),
                         images=document.get("images"),
                         image_url=document.get("imageUrl"),
+                        storage_url=document.get("storageUrl"),
                     )
                 )
 
@@ -759,6 +763,7 @@ class Approach(ABC):
         seen_urls = set()
         external_results_metadata: list[dict[str, Any]] = []
         citation_activity_details: dict[str, dict[str, Any]] = {}
+        citation_source_urls: dict[str, str] = {}
 
         for doc in results:
             # Get the citation for the source page
@@ -768,6 +773,9 @@ class Approach(ABC):
                 # Add activity details if available
                 if doc.activity:
                     citation_activity_details[citation] = asdict(doc.activity)
+                # Map citation to original SharePoint URL if available
+                if doc.storage_url:
+                    citation_source_urls[citation] = doc.storage_url
 
             # If semantic captions are used, extract captions; otherwise, use content
             if include_text_sources:
@@ -842,6 +850,7 @@ class Approach(ABC):
             citations=citations,
             external_results_metadata=external_results_metadata,
             citation_activity_details=citation_activity_details if citation_activity_details else None,
+            citation_source_urls=citation_source_urls if citation_source_urls else None,
         )
 
     def get_citation(self, sourcepage: Optional[str]):

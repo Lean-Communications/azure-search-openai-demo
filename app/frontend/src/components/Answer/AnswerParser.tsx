@@ -6,6 +6,7 @@ export type CitationDetail = {
     reference: string;
     index: number;
     isWeb: boolean;
+    sourceUrl?: string;
     activityId?: string;
     stepNumber?: number;
     stepLabel?: string;
@@ -78,6 +79,7 @@ const buildActivityStepMap = (answer: ChatAppResponse): Record<string, ActivityS
 const collectCitations = (answer: ChatAppResponse, isStreaming: boolean): { fragments: CitationFragment[]; citations: CitationDetail[] } => {
     const possibleCitations = answer.context.data_points.citations || [];
     const citationActivityDetails = answer.context.data_points.citation_activity_details ?? {};
+    const citationSourceUrls = answer.context.data_points.citation_source_urls ?? {};
     const activitySteps = buildActivityStepMap(answer);
     const externalResults = answer.context.data_points.external_results_metadata || [];
     const parsedAnswer = normalizeAnswerText(answer, isStreaming);
@@ -178,6 +180,7 @@ const collectCitations = (answer: ChatAppResponse, isStreaming: boolean): { frag
             reference: resolvedReference,
             index: citationList.length + 1,
             isWeb: isWebCitation(resolvedReference),
+            sourceUrl: citationSourceUrls[matchingCitation],
             activityId: activityId !== undefined ? String(activityId) : undefined,
             stepNumber: backendDetail?.number ?? stepMeta?.stepNumber,
             stepLabel: activityLabel ?? stepMeta?.stepLabel,
