@@ -19,7 +19,7 @@ from .fileprocessor import FileProcessor
 from .htmlparser import LocalHTMLParser
 from .jsonparser import JsonParser
 from .parser import Parser
-from .pdfparser import DocumentAnalysisParser, LocalPdfParser
+from .pdfparser import DocumentAnalysisParser, LocalDocxParser, LocalPdfParser
 from .strategy import SearchInfo
 from .textparser import TextParser
 from .textsplitter import SentenceTextSplitter, SimpleTextSplitter
@@ -250,6 +250,7 @@ def build_file_processors(
     document_intelligence_key: str | None = None,
     use_local_pdf_parser: bool = False,
     use_local_html_parser: bool = False,
+    use_local_docx_parser: bool = False,
     process_figures: bool = False,
 ) -> dict[str, FileProcessor]:
     sentence_text_splitter = SentenceTextSplitter()
@@ -296,11 +297,21 @@ def build_file_processors(
         file_processors.update({".pdf": FileProcessor(pdf_parser, sentence_text_splitter)})
     if html_parser is not None:
         file_processors.update({".html": FileProcessor(html_parser, sentence_text_splitter)})
+    # DOCX can be parsed locally or via Document Intelligence
+    docx_parser: Optional[Parser] = None
+    if use_local_docx_parser or document_intelligence_service is None:
+        docx_parser = LocalDocxParser()
+    elif doc_int_parser is not None:
+        docx_parser = doc_int_parser
+    else:
+        logger.warning("No DOCX parser available")
+    if docx_parser is not None:
+        file_processors.update({".docx": FileProcessor(docx_parser, sentence_text_splitter)})
+
     # These file formats require Document Intelligence
     if doc_int_parser is not None:
         file_processors.update(
             {
-                ".docx": FileProcessor(doc_int_parser, sentence_text_splitter),
                 ".pptx": FileProcessor(doc_int_parser, sentence_text_splitter),
                 ".xlsx": FileProcessor(doc_int_parser, sentence_text_splitter),
                 ".png": FileProcessor(doc_int_parser, sentence_text_splitter),

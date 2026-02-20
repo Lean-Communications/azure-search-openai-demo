@@ -339,6 +339,7 @@ param useMediaDescriberAzureCU bool = true
 param useUserUpload bool = false
 param useLocalPdfParser bool = false
 param useLocalHtmlParser bool = false
+param useLocalDocxParser bool = false
 
 @description('Use AI project')
 param useAiProject bool = false
@@ -585,6 +586,7 @@ var appEnvVariables = {
   AZURE_DOCUMENTINTELLIGENCE_SERVICE: documentIntelligence.outputs.name
   USE_LOCAL_PDF_PARSER: useLocalPdfParser
   USE_LOCAL_HTML_PARSER: useLocalHtmlParser
+  USE_LOCAL_DOCX_PARSER: useLocalDocxParser
   USE_MEDIA_DESCRIBER_AZURE_CU: useMediaDescriberAzureCU
   AZURE_CONTENTUNDERSTANDING_ENDPOINT: useMediaDescriberAzureCU ? contentUnderstanding!.outputs.endpoint : ''
   RUNNING_IN_PRODUCTION: 'true'
@@ -767,7 +769,7 @@ module logicApp 'app/logic-app.bicep' = if (useSharePointIngestion) {
     sharepointLibraryId: sharepointLibraryId
     sharepointFolderPath: sharepointFolderPath
     pollingIntervalMinutes: sharepointPollingIntervalMinutes
-    documentIngesterEndpoint: 'https://${functions!.outputs.documentIngesterUrl}/api/store'
+    documentIngesterEndpoint: 'https://${functions!.outputs.documentIngesterUrl}/api/ingest'
     documentIngesterAudience: functions!.outputs.documentIngesterAuthIdentifierUri
     identityId: logicAppIdentity!.outputs.resourceId
   }

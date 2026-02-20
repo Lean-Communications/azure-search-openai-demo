@@ -622,6 +622,7 @@ async def setup_clients():
             document_intelligence_service=os.getenv("AZURE_DOCUMENTINTELLIGENCE_SERVICE"),
             local_pdf_parser=os.getenv("USE_LOCAL_PDF_PARSER", "").lower() == "true",
             local_html_parser=os.getenv("USE_LOCAL_HTML_PARSER", "").lower() == "true",
+            local_docx_parser=os.getenv("USE_LOCAL_DOCX_PARSER", "").lower() == "true",
             use_content_understanding=os.getenv("USE_CONTENT_UNDERSTANDING", "").lower() == "true",
             content_understanding_endpoint=os.getenv("AZURE_CONTENTUNDERSTANDING_ENDPOINT"),
             use_multimodal=USE_MULTIMODAL,

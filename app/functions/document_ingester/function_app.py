@@ -156,6 +156,7 @@ def configure_global_settings():
         document_intelligence_key=None,
         use_local_pdf_parser=os.getenv("USE_LOCAL_PDF_PARSER", "false").lower() == "true",
         use_local_html_parser=os.getenv("USE_LOCAL_HTML_PARSER", "false").lower() == "true",
+        use_local_docx_parser=os.getenv("USE_LOCAL_DOCX_PARSER", "false").lower() == "true",
         process_figures=process_figures,
     )
 
@@ -473,6 +474,147 @@ async def store_document(req: func.HttpRequest) -> func.HttpResponse:
         )
     except Exception as e:
         logger.error("Error storing %s: %s", filename, str(e), exc_info=True)
+        return func.HttpResponse(
+            json.dumps({"error": str(e)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.function_name(name="reindexall")
+@app.route(route="reindex-all", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+async def reindex_all(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Re-index all documents in a SharePoint folder.
+    Lists every file via Microsoft Graph API, downloads each, and ingests it.
+
+    Body (JSON):
+        siteUrl:   SharePoint site URL (e.g. https://contoso.sharepoint.com/sites/mysite)
+        folderPath: Folder path within the document library (e.g. /General/Documents)
+    """
+    if settings is None:
+        return func.HttpResponse(
+            json.dumps({"error": "Settings not initialized"}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+    # Parse request body
+    try:
+        body = req.get_json()
+    except Exception:
+        body = {}
+    site_url = body.get("siteUrl") or os.getenv("SHAREPOINT_SITE_URL")
+    folder_path = body.get("folderPath") or os.getenv("SHAREPOINT_FOLDER_PATH", "")
+
+    if not site_url:
+        return func.HttpResponse(
+            json.dumps({"error": "siteUrl is required (in body or SHAREPOINT_SITE_URL env var)"}),
+            mimetype="application/json",
+            status_code=400,
+        )
+
+    # Ensure index exists
+    global _index_ensured
+    if not _index_ensured:
+        await settings.search_manager.create_index()
+        _index_ensured = True
+
+    try:
+        token = settings.azure_credential.get_token("https://graph.microsoft.com/.default")
+        access_token = (await token).token
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
+            # 1. Resolve the site ID from the site URL
+            from urllib.parse import urlparse
+
+            parsed = urlparse(site_url)
+            hostname = parsed.hostname
+            site_path = parsed.path.rstrip("/")
+            site_resp = await client.get(
+                f"https://graph.microsoft.com/v1.0/sites/{hostname}:{site_path}",
+                headers=headers,
+            )
+            if site_resp.status_code != 200:
+                return func.HttpResponse(
+                    json.dumps({"error": f"Could not resolve site: {site_resp.text[:500]}"}),
+                    mimetype="application/json",
+                    status_code=502,
+                )
+            site_id = site_resp.json()["id"]
+
+            # 2. Get the default document library drive
+            drives_resp = await client.get(
+                f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives",
+                headers=headers,
+            )
+            if drives_resp.status_code != 200:
+                return func.HttpResponse(
+                    json.dumps({"error": f"Could not list drives: {drives_resp.text[:500]}"}),
+                    mimetype="application/json",
+                    status_code=502,
+                )
+            drives = drives_resp.json().get("value", [])
+            if not drives:
+                return func.HttpResponse(
+                    json.dumps({"error": "No drives found on site"}),
+                    mimetype="application/json",
+                    status_code=404,
+                )
+            drive_id = drives[0]["id"]
+
+            # 3. List files in the folder (or root)
+            if folder_path and folder_path.strip("/"):
+                list_url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{folder_path.strip('/')}:/children"
+            else:
+                list_url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
+
+            results = []
+            # Page through all results
+            while list_url:
+                list_resp = await client.get(list_url, headers=headers)
+                if list_resp.status_code != 200:
+                    return func.HttpResponse(
+                        json.dumps({"error": f"Could not list files: {list_resp.text[:500]}"}),
+                        mimetype="application/json",
+                        status_code=502,
+                    )
+                data = list_resp.json()
+                items = data.get("value", [])
+
+                for item in items:
+                    # Skip folders
+                    if "folder" in item:
+                        continue
+                    filename = item["name"]
+                    item_id = item["id"]
+                    web_url = item.get("webUrl")
+
+                    logger.info("Reindex-all: processing %s (item=%s)", filename, item_id)
+                    file_bytes = await download_from_sharepoint(drive_id, item_id)
+                    if file_bytes is None:
+                        results.append({"filename": filename, "status": "download_failed"})
+                        continue
+
+                    try:
+                        chunks = await process_and_index_document(filename, file_bytes, source_url=web_url)
+                        results.append({"filename": filename, "status": "success", "chunks": chunks})
+                    except ValueError as e:
+                        results.append({"filename": filename, "status": "skipped", "reason": str(e)})
+                    except Exception as e:
+                        logger.error("Reindex-all: error processing %s: %s", filename, e, exc_info=True)
+                        results.append({"filename": filename, "status": "error", "reason": str(e)})
+
+                list_url = data.get("@odata.nextLink")
+
+        return func.HttpResponse(
+            json.dumps({"status": "complete", "files": results}, ensure_ascii=False),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as e:
+        logger.error("Reindex-all failed: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",

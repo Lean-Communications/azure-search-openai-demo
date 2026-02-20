@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 from enum import Enum
 from typing import IO, Optional
 
+import docx
 import pymupdf
 from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
 from azure.ai.documentintelligence.models import (
@@ -42,6 +43,72 @@ class LocalPdfParser(Parser):
             page_text = p.extract_text()
             yield Page(page_num=page_num, offset=offset, text=page_text)
             offset += len(page_text)
+
+
+class LocalDocxParser(Parser):
+    """
+    Concrete parser backed by python-docx that can parse DOCX files into pages.
+    Uses Word's lastRenderedPageBreak and explicit page break markers to split
+    the document into pages matching the original Word pagination.
+    """
+
+    _HEADING_LEVELS = {
+        "Heading 1": "# ",
+        "Heading 2": "## ",
+        "Heading 3": "### ",
+        "Heading 4": "#### ",
+    }
+    _NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+    @staticmethod
+    def _has_page_break(paragraph_element) -> bool:
+        """Check if a paragraph contains a page break before its text content."""
+        ns = LocalDocxParser._NS
+        for run in paragraph_element.findall(f"{ns}r"):
+            # Explicit page break: <w:br w:type="page"/>
+            for br in run.findall(f"{ns}br"):
+                if br.get(f"{ns}type") == "page":
+                    return True
+            # Word-saved page break: <w:lastRenderedPageBreak/>
+            if run.find(f"{ns}lastRenderedPageBreak") is not None:
+                return True
+        return False
+
+    async def parse(self, content: IO) -> AsyncGenerator[Page, None]:
+        logger.info("Extracting text from '%s' using local DOCX parser (python-docx)", content.name)
+
+        doc = docx.Document(content)
+        page_num = 0
+        offset = 0
+        text_parts: list[str] = []
+
+        for element in doc.element.body:
+            tag = element.tag.split("}")[-1]  # strip namespace
+            if tag == "p":
+                # Check for page break before this paragraph's text
+                if text_parts and self._has_page_break(element):
+                    page_text = "\n".join(text_parts)
+                    yield Page(page_num=page_num, offset=offset, text=page_text)
+                    offset += len(page_text)
+                    page_num += 1
+                    text_parts = []
+
+                para = docx.text.paragraph.Paragraph(element, doc)
+                style_name = para.style.name if para.style else ""
+                prefix = self._HEADING_LEVELS.get(style_name, "")
+                para_text = para.text.strip()
+                if para_text:
+                    text_parts.append(f"{prefix}{para_text}")
+            elif tag == "tbl":
+                table = docx.table.Table(element, doc)
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells]
+                    text_parts.append(" | ".join(cells))
+
+        # Yield the final page
+        if text_parts:
+            page_text = "\n".join(text_parts)
+            yield Page(page_num=page_num, offset=offset, text=page_text)
 
 
 class DocumentAnalysisParser(Parser):

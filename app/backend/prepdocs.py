@@ -65,6 +65,7 @@ def setup_file_processors(
     document_intelligence_key: Optional[str] = None,
     local_pdf_parser: bool = False,
     local_html_parser: bool = False,
+    local_docx_parser: bool = False,
     use_content_understanding: bool = False,
     use_multimodal: bool = False,
     openai_client: Optional[AsyncOpenAI] = None,
@@ -83,6 +84,7 @@ def setup_file_processors(
         document_intelligence_key=document_intelligence_key,
         use_local_pdf_parser=local_pdf_parser,
         use_local_html_parser=local_html_parser,
+        use_local_docx_parser=local_docx_parser,
         process_figures=use_multimodal,
     )
 

@@ -338,6 +338,9 @@
     "useLocalHtmlParser": {
       "value": "${USE_LOCAL_HTML_PARSER}"
     },
+    "useLocalDocxParser": {
+      "value": "${USE_LOCAL_DOCX_PARSER}"
+    },
     "runningOnGh": {
       "value": "${GITHUB_ACTIONS}"
     },
