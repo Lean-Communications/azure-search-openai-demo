@@ -55,7 +55,15 @@ def get_search_documents(azure_credential, num_search_documents=None) -> str:
 def generate_ground_truth_ragas(num_questions=200, num_search_documents=None, kg_file=None):
     azure_credential = get_azure_credential()
     azure_openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION") or "2024-06-01"
-    azure_endpoint = f"https://{os.getenv('AZURE_OPENAI_SERVICE')}.openai.azure.com"
+    azure_openai_custom_url = os.getenv("AZURE_OPENAI_CUSTOM_URL")
+    if azure_openai_custom_url:
+        # Foundry / custom endpoints: strip the /openai/v1 suffix to get the base endpoint
+        from urllib.parse import urlparse
+
+        parsed = urlparse(azure_openai_custom_url)
+        azure_endpoint = f"{parsed.scheme}://{parsed.netloc}"
+    else:
+        azure_endpoint = f"https://{os.getenv('AZURE_OPENAI_SERVICE')}.openai.azure.com"
     azure_ad_token_provider = get_bearer_token_provider(
         azure_credential, "https://cognitiveservices.azure.com/.default"
     )
@@ -98,7 +106,7 @@ def generate_ground_truth_ragas(num_questions=200, num_search_documents=None, kg
         sourcepage_field = os.getenv("KB_FIELDS_SOURCEPAGE", "sourcepage")
         for doc in search_docs:
             content = doc[content_field]
-            citation = doc.get(sourcepage_field, doc["chunk_id"])
+            citation = doc.get(sourcepage_field) or doc.get("chunk_id") or doc.get("id", "unknown")
             node = Node(
                 type=NodeType.DOCUMENT,
                 properties={
