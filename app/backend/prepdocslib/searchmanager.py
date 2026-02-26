@@ -218,6 +218,38 @@ class SearchManager:
                             sortable=False,
                             facetable=False,
                         ),
+                        SearchField(
+                            name="context_title",
+                            type=SearchFieldDataType.String,
+                            searchable=True,
+                            filterable=False,
+                            sortable=False,
+                            facetable=False,
+                        ),
+                        SearchField(
+                            name="context_text",
+                            type=SearchFieldDataType.String,
+                            searchable=True,
+                            filterable=False,
+                            sortable=False,
+                            facetable=False,
+                        ),
+                        SearchField(
+                            name="alt_text",
+                            type=SearchFieldDataType.String,
+                            searchable=True,
+                            filterable=False,
+                            sortable=False,
+                            facetable=False,
+                        ),
+                        SearchField(
+                            name="source_document_summary",
+                            type=SearchFieldDataType.String,
+                            searchable=True,
+                            filterable=False,
+                            sortable=False,
+                            facetable=False,
+                        ),
                     ],
                 )
 
@@ -280,6 +312,10 @@ class SearchManager:
                         type="Edm.String",
                         filterable=True,
                         facetable=False,
+                    ),
+                    SearchableField(
+                        name="sourceDocumentSummary",
+                        type="Edm.String",
                     ),
                 ]
                 if self.use_acls:
@@ -372,6 +408,16 @@ class SearchManager:
                             type="Edm.String",
                             filterable=True,
                             facetable=False,
+                        ),
+                    )
+                    await search_index_client.create_or_update_index(existing_index)
+
+                if not any(field.name == "sourceDocumentSummary" for field in existing_index.fields):
+                    logger.info("Adding sourceDocumentSummary field to index %s", self.search_info.index_name)
+                    existing_index.fields.append(
+                        SearchableField(
+                            name="sourceDocumentSummary",
+                            type="Edm.String",
                         ),
                     )
                     await search_index_client.create_or_update_index(existing_index)
@@ -651,6 +697,10 @@ class SearchManager:
                                     "description": image.description,
                                     "boundingbox": image.bbox,
                                     "embedding": image.embedding,
+                                    "context_title": image.context_title or "",
+                                    "context_text": image.context_text or "",
+                                    "alt_text": image.alt_text or "",
+                                    "source_document_summary": image.source_document_summary or "",
                                 }
                                 for image in section.chunk.images
                             ]
@@ -658,6 +708,11 @@ class SearchManager:
                     # Extract the first image URL (if any) for the top-level imageUrl field
                     first_image_url = next(
                         (img.url for img in section.chunk.images if img.url), None
+                    )
+                    # Extract sourceDocumentSummary from the first image that has one
+                    source_doc_summary = next(
+                        (img.source_document_summary for img in section.chunk.images if img.source_document_summary),
+                        None,
                     )
                     document = {
                         "id": f"{section.content.filename_to_id()}-page-{section_index + batch_index * MAX_BATCH_SIZE}",
@@ -670,6 +725,7 @@ class SearchManager:
                         "imageUrl": first_image_url,
                         **image_fields,
                         **section.content.acls,
+                        **({"sourceDocumentSummary": source_doc_summary} if source_doc_summary else {}),
                     }
                     documents.append(document)
                 if url:
