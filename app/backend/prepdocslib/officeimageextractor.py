@@ -142,12 +142,7 @@ def _extract_docx_images(document_bytes: bytes, filename: str, pages: list[Page]
     from docx import Document
     from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
-    _HEADING_LEVELS = {
-        "Heading 1": "# ",
-        "Heading 2": "## ",
-        "Heading 3": "### ",
-        "Heading 4": "#### ",
-    }
+    _HEADING_STYLES = {"Heading 1", "Heading 2", "Heading 3", "Heading 4"}
 
     doc = Document(io.BytesIO(document_bytes))
     images: list[ImageOnPage] = []
@@ -170,7 +165,7 @@ def _extract_docx_images(document_bytes: bytes, filename: str, pages: list[Page]
     for para_idx, para in enumerate(doc.paragraphs):
         # Update heading tracker
         style_name = para.style.name if para.style else ""
-        if style_name in _HEADING_LEVELS:
+        if style_name in _HEADING_STYLES:
             heading_text = para.text.strip()
             if heading_text:
                 current_heading = heading_text
