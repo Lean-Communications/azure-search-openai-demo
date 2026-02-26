@@ -136,6 +136,8 @@ class FileStrategy(Strategy):
         enforce_access_control: bool = False,
         use_web_source: bool = False,
         use_sharepoint_source: bool = False,
+        summary_client: Optional[AsyncOpenAI] = None,
+        summary_model: Optional[str] = None,
     ):
         self.list_file_strategy = list_file_strategy
         self.blob_manager = blob_manager
@@ -152,6 +154,8 @@ class FileStrategy(Strategy):
         self.enforce_access_control = enforce_access_control
         self.use_web_source = use_web_source
         self.use_sharepoint_source = use_sharepoint_source
+        self.summary_client = summary_client
+        self.summary_model = summary_model
 
     def setup_search_manager(self):
         self.search_manager = SearchManager(
@@ -194,6 +198,8 @@ class FileStrategy(Strategy):
                         self.blob_manager,
                         self.image_embeddings,
                         figure_processor=self.figure_processor,
+                        summary_client=self.summary_client,
+                        summary_model=self.summary_model,
                     )
                     if sections:
                         await self.search_manager.update_content(sections, url=blob_url)
@@ -225,6 +231,8 @@ class UploadUserFileStrategy:
         image_embeddings: Optional[ImageEmbeddings] = None,
         enforce_access_control: bool = False,
         figure_processor: Optional[FigureProcessor] = None,
+        summary_client: Optional[AsyncOpenAI] = None,
+        summary_model: Optional[str] = None,
     ):
         self.file_processors = file_processors
         self.embeddings = embeddings
@@ -232,6 +240,8 @@ class UploadUserFileStrategy:
         self.search_info = search_info
         self.blob_manager = blob_manager
         self.figure_processor = figure_processor
+        self.summary_client = summary_client
+        self.summary_model = summary_model
         self.search_manager = SearchManager(
             search_info=self.search_info,
             search_analyzer_name=None,
@@ -253,6 +263,8 @@ class UploadUserFileStrategy:
             self.image_embeddings,
             figure_processor=self.figure_processor,
             user_oid=user_oid,
+            summary_client=self.summary_client,
+            summary_model=self.summary_model,
         )
         if sections:
             await self.search_manager.update_content(sections, url=file.url)

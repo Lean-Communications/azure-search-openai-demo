@@ -19,7 +19,7 @@ from .fileprocessor import FileProcessor
 from .htmlparser import LocalHTMLParser
 from .jsonparser import JsonParser
 from .parser import Parser
-from .pdfparser import DocumentAnalysisParser, LocalDocxParser, LocalPdfParser
+from .pdfparser import DocumentAnalysisParser, HybridPdfParser, LocalDocxParser, LocalPdfParser
 from .strategy import SearchInfo
 from .textparser import TextParser
 from .textsplitter import SentenceTextSplitter, SimpleTextSplitter
@@ -249,6 +249,7 @@ def build_file_processors(
     document_intelligence_service: str | None,
     document_intelligence_key: str | None = None,
     use_local_pdf_parser: bool = False,
+    use_hybrid_pdf_parser: bool = False,
     use_local_html_parser: bool = False,
     use_local_docx_parser: bool = False,
     process_figures: bool = False,
@@ -272,6 +273,8 @@ def build_file_processors(
     pdf_parser: Optional[Parser] = None
     if use_local_pdf_parser or document_intelligence_service is None:
         pdf_parser = LocalPdfParser()
+    elif use_hybrid_pdf_parser:
+        pdf_parser = HybridPdfParser(di_parser=doc_int_parser)
     elif doc_int_parser is not None:
         pdf_parser = doc_int_parser
     else:

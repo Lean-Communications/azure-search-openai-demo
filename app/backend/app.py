@@ -665,6 +665,8 @@ async def setup_clients():
             search_field_name_embedding=AZURE_SEARCH_FIELD_NAME_EMBEDDING,
             blob_manager=user_blob_manager,
             figure_processor=figure_processor,
+            summary_client=openai_client if os.getenv("USE_DOCUMENT_SUMMARY") == "true" else None,
+            summary_model=OPENAI_CHATGPT_MODEL if os.getenv("USE_DOCUMENT_SUMMARY") == "true" else None,
         )
         current_app.config[CONFIG_INGESTER] = ingester
 
