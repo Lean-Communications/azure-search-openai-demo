@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .blobmanager import AdlsBlobManager, BaseBlobManager, BlobManager
 from .embeddings import ImageEmbeddings, OpenAIEmbeddings
@@ -15,7 +17,53 @@ from .searchmanager import SearchManager, Section
 from .strategy import DocumentAction, SearchInfo, Strategy
 from .textprocessor import process_text
 
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
 logger = logging.getLogger("scripts")
+
+SUMMARY_INPUT_MAX_CHARS = 3000  # Max chars of document text sent to summary model
+SUMMARY_MAX_TOKENS = 100  # Max tokens for summary output
+
+
+async def _generate_document_summary(
+    pages: list,
+    client: AsyncOpenAI,
+    model: str,
+    filename: str,
+) -> Optional[str]:
+    """Generate a 1-2 sentence summary of the document using the first ~3000 chars."""
+    # Collect text efficiently, stopping once we have enough
+    summary_input_parts: list[str] = []
+    chars_so_far = 0
+    for p in pages:
+        if chars_so_far >= SUMMARY_INPUT_MAX_CHARS:
+            break
+        remaining = SUMMARY_INPUT_MAX_CHARS - chars_so_far
+        summary_input_parts.append(p.text[:remaining])
+        chars_so_far += len(summary_input_parts[-1])
+    first_text = " ".join(summary_input_parts)
+
+    if not first_text.strip():
+        return None
+
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Summarize what this document is about in 1-2 sentences."},
+                {"role": "user", "content": first_text},
+            ],
+            max_tokens=SUMMARY_MAX_TOKENS,
+            temperature=0.0,
+        )
+        summary = response.choices[0].message.content
+        if summary:
+            logger.info("Generated document summary for '%s': %s", filename, summary[:100])
+            return summary.strip()
+    except Exception as e:
+        logger.warning("Failed to generate document summary for '%s': %s", filename, e)
+    return None
 
 
 async def parse_file(
@@ -26,6 +74,8 @@ async def parse_file(
     image_embeddings_client: Optional[ImageEmbeddings] = None,
     figure_processor: Optional[FigureProcessor] = None,
     user_oid: Optional[str] = None,
+    summary_client: Optional[AsyncOpenAI] = None,
+    summary_model: Optional[str] = None,
 ) -> list[Section]:
 
     key = file.file_extension().lower()
@@ -35,6 +85,20 @@ async def parse_file(
         return []
     logger.info("Ingesting '%s'", file.filename())
     pages = [page async for page in processor.parser.parse(content=file.content)]
+
+    # Generate document summary (if client provided)
+    source_document_summary: Optional[str] = None
+    if summary_client is not None and summary_model is not None and pages:
+        source_document_summary = await _generate_document_summary(
+            pages, summary_client, summary_model, file.filename()
+        )
+
+    # Stamp summary on all images
+    if source_document_summary:
+        for page in pages:
+            for image in page.images:
+                image.source_document_summary = source_document_summary
+
     for page in pages:
         for image in page.images:
             logger.info("Processing image '%s' on page %d", image.filename, page.page_num)
