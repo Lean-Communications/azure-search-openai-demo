@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 _MIN_IMAGE_BYTES = 2048  # 2 KB — skip tiny icons/spacers
 _MIN_IMAGE_DIMENSION = 50  # px — skip bullets and decorations
 _SKIP_FORMATS = {"emf", "wmf", "x-emf", "x-wmf"}
+_CONTEXT_TEXT_MAX_CHARS = 2000
 
 # Map common Office image content-types to extensions
 _MIME_TO_EXT = {
@@ -70,6 +71,20 @@ def _extract_pptx_images(document_bytes: bytes, filename: str) -> list[ImageOnPa
     img_counter = 0
 
     for slide_idx, slide in enumerate(prs.slides):
+        # Collect slide-level context: title and full text
+        context_title: str | None = None
+        if slide.shapes.title is not None:
+            context_title = slide.shapes.title.text.strip() or None
+
+        text_parts: list[str] = []
+        for s in slide.shapes:
+            if s.has_text_frame:
+                for paragraph in s.text_frame.paragraphs:
+                    t = paragraph.text.strip()
+                    if t:
+                        text_parts.append(t)
+        context_text = "\n".join(text_parts)[:_CONTEXT_TEXT_MAX_CHARS] or None
+
         for shape in slide.shapes:
             if shape.shape_type != MSO_SHAPE_TYPE.PICTURE:
                 continue
@@ -84,6 +99,18 @@ def _extract_pptx_images(document_bytes: bytes, filename: str) -> list[ImageOnPa
             if img_hash in seen_hashes:
                 continue
             seen_hashes.add(img_hash)
+
+            # Extract alt text from the shape's cNvPr element (descr attribute)
+            alt_text: str | None = None
+            try:
+                nsmap = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
+                cNvPr = shape._element.find(".//p:cNvPr", nsmap)
+                if cNvPr is not None:
+                    descr = cNvPr.get("descr")
+                    if descr and descr.strip():
+                        alt_text = descr.strip()
+            except Exception:
+                pass
 
             img_counter += 1
             figure_id = f"img_{img_counter}"
@@ -101,6 +128,9 @@ def _extract_pptx_images(document_bytes: bytes, filename: str) -> list[ImageOnPa
                     page_num=slide_idx,
                     placeholder=placeholder,
                     mime_type=content_type,
+                    context_title=context_title,
+                    context_text=context_text,
+                    alt_text=alt_text,
                 )
             )
 
@@ -111,6 +141,13 @@ def _extract_docx_images(document_bytes: bytes, filename: str, pages: list[Page]
     """Extract inline images from a DOCX file, resolving page numbers from parsed pages."""
     from docx import Document
     from docx.opc.constants import RELATIONSHIP_TYPE as RT
+
+    _HEADING_LEVELS = {
+        "Heading 1": "# ",
+        "Heading 2": "## ",
+        "Heading 3": "### ",
+        "Heading 4": "#### ",
+    }
 
     doc = Document(io.BytesIO(document_bytes))
     images: list[ImageOnPage] = []
@@ -124,10 +161,46 @@ def _extract_docx_images(document_bytes: bytes, filename: str, pages: list[Page]
         paragraph_offsets.append(cumulative)
         cumulative += len(para.text) + 1  # +1 for implicit newline
 
+    # Build a map from page_num -> page text for context_text lookup
+    page_text_map: dict[int, str] = {p.page_num: p.text[:_CONTEXT_TEXT_MAX_CHARS] for p in pages}
+
+    # Track the nearest heading above each paragraph
+    current_heading: str | None = None
+
     for para_idx, para in enumerate(doc.paragraphs):
+        # Update heading tracker
+        style_name = para.style.name if para.style else ""
+        if style_name in _HEADING_LEVELS:
+            heading_text = para.text.strip()
+            if heading_text:
+                current_heading = heading_text
+
         blips = para._element.findall(
             ".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
         )
+        if not blips:
+            continue
+
+        # Collect all docPr elements in this paragraph to extract alt text per drawing
+        _WP_NS = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+        _A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+        drawings = para._element.findall(
+            ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing"
+        )
+        # Build a map: embed_id -> alt_text by walking each drawing's docPr + blip
+        blip_alt_map: dict[str, str] = {}
+        for drawing in drawings:
+            doc_prs = drawing.findall(f".//{{{_WP_NS}}}docPr")
+            drawing_blips = drawing.findall(f".//{{{_A_NS}}}blip")
+            if doc_prs and drawing_blips:
+                descr = doc_prs[0].get("descr", "").strip()
+                for db in drawing_blips:
+                    embed = db.get(
+                        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+                    )
+                    if embed and descr:
+                        blip_alt_map[embed] = descr
+
         for blip in blips:
             embed_id = blip.get(
                 "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
@@ -164,6 +237,11 @@ def _extract_docx_images(document_bytes: bytes, filename: str, pages: list[Page]
             para_offset = paragraph_offsets[para_idx]
             page_num = _find_page_for_offset(para_offset, pages) if pages else 0
 
+            # Context fields
+            context_title = current_heading
+            context_text = page_text_map.get(page_num)
+            alt_text = blip_alt_map.get(embed_id) or None
+
             images.append(
                 ImageOnPage(
                     bytes=image_blob,
@@ -173,6 +251,9 @@ def _extract_docx_images(document_bytes: bytes, filename: str, pages: list[Page]
                     page_num=page_num,
                     placeholder=placeholder,
                     mime_type=content_type,
+                    context_title=context_title,
+                    context_text=context_text,
+                    alt_text=alt_text,
                 )
             )
 
