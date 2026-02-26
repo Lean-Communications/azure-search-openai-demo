@@ -16,6 +16,10 @@ class ImageOnPage:
     title: str = ""
     embedding: Optional[list[float]] = None
     description: Optional[str] = None
+    context_title: Optional[str] = None
+    context_text: Optional[str] = None
+    alt_text: Optional[str] = None
+    source_document_summary: Optional[str] = None
 
     def to_skill_payload(
         self,
@@ -84,6 +88,10 @@ class ImageOnPage:
             title=data.get("title") or "",
             description=data.get("description"),
             url=data.get("url"),
+            context_title=data.get("context_title"),
+            context_text=data.get("context_text"),
+            alt_text=data.get("alt_text"),
+            source_document_summary=data.get("source_document_summary"),
         )
         return image, data.get("document_file_name", "")
 
