@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pymupdf
 import pytest
+from PIL import Image
 
 from prepdocslib.page import Page
 from prepdocslib.pdfparser import (
@@ -58,9 +59,11 @@ def test_page_needs_ocr_digital_page():
     """A real PDF page with substantial text should be classified as digital."""
     # Use page 1 (body page) which has more text than the title page
     doc, page = _open_real_pdf_page(1)
-    parser = HybridPdfParser()
-    assert parser._page_needs_ocr(page) is False
-    doc.close()
+    try:
+        parser = HybridPdfParser()
+        assert parser._page_needs_ocr(page) is False
+    finally:
+        doc.close()
 
 
 def test_page_needs_ocr_scanned_signature():
@@ -200,3 +203,35 @@ async def test_hybrid_parser_sends_only_scanned_pages_to_di():
     # The real PDF is digital, so DI should not have been invoked
     assert not di_parse_called, "DI parser was called but PDF is fully digital"
     assert len(pages) > 0
+
+
+@pytest.mark.asyncio
+async def test_hybrid_parser_scanned_pages_no_di_yields_empty_pages(caplog):
+    """Scanned pages with no DI parser should yield empty pages with a warning."""
+    parser = HybridPdfParser(di_parser=None)
+
+    # Create a minimal 1-page PDF with no text (simulates a scanned page)
+    doc = pymupdf.open()
+    page = doc.new_page(width=612, height=792)
+    # Insert a large image to trigger the scan heuristic
+    img = Image.new("RGB", (600, 780), color="white")
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format="PNG")
+    img_bytes.seek(0)
+    page.insert_image(pymupdf.Rect(6, 6, 606, 786), stream=img_bytes.getvalue())
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    content = io.BytesIO(pdf_bytes)
+    content.name = "scanned_test.pdf"
+
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="scripts"):
+        pages = [p async for p in parser.parse(content)]
+
+    # Should still yield a page (empty text) rather than dropping it
+    assert len(pages) == 1
+    assert pages[0].text == ""
+    # Should have logged a warning
+    assert any("no DI parser configured" in r.message for r in caplog.records)
