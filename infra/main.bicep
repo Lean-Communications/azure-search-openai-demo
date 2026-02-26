@@ -485,6 +485,16 @@ module applicationInsightsDashboard 'backend-dashboard.bicep' = if (useApplicati
   }
 }
 
+module evalDashboard 'eval-dashboard.bicep' = if (useApplicationInsights && useEval) {
+  name: 'eval-dashboard'
+  scope: resourceGroup
+  params: {
+    applicationInsightsName: useApplicationInsights ? monitoring!.outputs.applicationInsightsName : ''
+    location: location
+    tags: tags
+  }
+}
+
 // Create an App Service Plan to group applications under the same payment plan and SKU
 module appServicePlan 'core/host/appserviceplan.bicep' = if (deploymentTarget == 'appservice') {
   name: 'appserviceplan'
@@ -590,6 +600,9 @@ var appEnvVariables = {
   USE_MEDIA_DESCRIBER_AZURE_CU: useMediaDescriberAzureCU
   AZURE_CONTENTUNDERSTANDING_ENDPOINT: useMediaDescriberAzureCU ? contentUnderstanding!.outputs.endpoint : ''
   RUNNING_IN_PRODUCTION: 'true'
+  // Eval model configuration
+  AZURE_OPENAI_EVAL_DEPLOYMENT: useEval ? eval.deploymentName : ''
+  AZURE_OPENAI_EVAL_MODEL: useEval ? eval.modelName : ''
   // RAG Configuration
   RAG_SEARCH_TEXT_EMBEDDINGS: ragSearchTextEmbeddings
   RAG_SEARCH_IMAGE_EMBEDDINGS: ragSearchImageEmbeddings
@@ -714,11 +727,16 @@ module acaAuth 'core/host/container-apps-auth.bicep' = if (deploymentTarget == '
     enableUnauthenticatedAccess: enableUnauthenticatedAccess
     blobContainerUri: 'https://${storageAccountName}.blob.${environment().suffixes.storage}/${tokenStorageContainerName}'
     appIdentityResourceId: (deploymentTarget == 'appservice') ? '' : acaBackend!.outputs.identityResourceId
+    additionalAllowedAudiences: [serverAppId]
   }
 }
 
-// Optional Azure Functions for document ingestion and processing
-module functions 'app/functions.bicep' = if (useCloudIngestion) {
+// Compute the eval target URL (the backend /chat endpoint)
+var backendUri = deploymentTarget == 'appservice' ? backend!.outputs.uri : acaBackend!.outputs.uri
+var evalTargetUrl = '${backendUri}/chat'
+
+// Optional Azure Functions for document ingestion and processing (deployed when cloud ingestion or eval is enabled)
+module functions 'app/functions.bicep' = if (useCloudIngestion || useEval) {
   name: 'functions'
   scope: resourceGroup
   params: {
@@ -739,6 +757,10 @@ module functions 'app/functions.bicep' = if (useCloudIngestion) {
     figureProcessorName: '${abbrs.webSitesFunctions}figure-processor-${resourceToken}'
     textProcessorName: '${abbrs.webSitesFunctions}text-processor-${resourceToken}'
     documentIngesterName: '${abbrs.webSitesFunctions}doc-ingester-${resourceToken}'
+    evalRunnerName: useEval ? '${abbrs.webSitesFunctions}eval-runner-${resourceToken}' : ''
+    deployEvalRunner: useEval
+    evalTargetUrl: useEval ? evalTargetUrl : ''
+    evalTargetAppId: useEval && !enableUnauthenticatedAccess ? serverAppId : ''
     openIdIssuer: authenticationIssuerUri
     appEnvVariables: appEnvVariables
     searchUserAssignedIdentityClientId: searchService.outputs.userAssignedIdentityClientId
@@ -986,7 +1008,7 @@ module storage 'core/storage/storage-account.bicep' = {
       enabled: true
       days: 2
     }
-    containers: [
+    containers: concat([
       {
         name: storageContainerName
         publicAccess: 'None'
@@ -999,7 +1021,12 @@ module storage 'core/storage/storage-account.bicep' = {
         name: tokenStorageContainerName
         publicAccess: 'None'
       }
-    ]
+    ], useEval ? [
+      {
+        name: 'eval-data'
+        publicAccess: 'None'
+      }
+    ] : [])
   }
 }
 

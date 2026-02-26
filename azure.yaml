@@ -80,6 +80,10 @@ services:
         run: python3 ../../../scripts/copy_prepdocslib.py
         interactive: false
         continueOnError: false
+  eval-runner:
+    project: ./app/functions/eval_runner
+    language: py
+    host: function
 hooks:
     preprovision:
       windows:

@@ -135,6 +135,16 @@ class AuthenticationHelper:
 
         raise AuthError(error="Authorization header is expected", status_code=401)
 
+    @staticmethod
+    def _is_app_only_token(token: str) -> bool:
+        """Detect app-only tokens (e.g. from managed identities) by checking for the absence of a 'scp' claim.
+        User-delegated tokens have 'scp'; app-only tokens do not."""
+        try:
+            claims = jwt.decode(token, options={"verify_signature": False})
+            return "scp" not in claims
+        except Exception:
+            return False
+
     async def get_auth_claims_if_enabled(self, headers: dict) -> dict[str, Any]:
         if not self.use_authentication:
             return {}
@@ -145,6 +155,13 @@ class AuthenticationHelper:
             auth_token = AuthenticationHelper.get_token_auth_header(headers)
             # Validate the token before use
             await self.validate_access_token(auth_token)
+
+            # App-only tokens (e.g. from managed identities used by the eval runner)
+            # cannot be exchanged via the On-Behalf-Of flow. Allow them through
+            # without user context — they have already been validated above.
+            if self._is_app_only_token(auth_token):
+                logging.info("App-only token detected, skipping OBO flow")
+                return {}
 
             # Use the on-behalf-of-flow to acquire another token for use with Azure Search
             # See https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow for more information

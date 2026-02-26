@@ -31,6 +31,9 @@ param searchUserAssignedIdentityClientId string
 @description('Additional Entra ID application client IDs allowed to call this function (e.g. Logic App managed identity)')
 param additionalAllowedApplicationClientIds array = []
 
+@description('Enable Easy Auth (App Service Authentication). Disable for dev tools like eval runner.')
+param enableEasyAuth bool = true
+
 // AVM expects authentication.type values: SystemAssignedIdentity | UserAssignedIdentity | StorageAccountConnectionString
 // Use UserAssignedIdentity for per-function user-assigned managed identity deployment storage access.
 var identityType = 'UserAssignedIdentity'
@@ -64,11 +67,11 @@ var appInsightsSettings = !empty(applicationInsightsName) ? {
   APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.?properties.ConnectionString ?? ''
 } : {}
 
-var easyAuthSettings = {
+var easyAuthSettings = enableEasyAuth ? {
     OVERRIDE_USE_MI_FIC_ASSERTION_CLIENTID: identityClientId
     WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES: '${authIdentifierUri}/user_impersonation'
     WEBSITE_AUTH_AAD_ALLOWED_TENANTS: authTenantId
-}
+} : {}
 
 // Merge all app settings
 var allAppSettings = union(appSettings, baseAppSettings, appInsightsSettings, easyAuthSettings)
@@ -109,7 +112,6 @@ module functionApp 'br/public:avm/res/web/site:0.15.1' = {
     }
     siteConfig: {
       alwaysOn: false
-      functionAppScaleLimit: maximumInstanceCount
       httpsOnly: true
       ftpsState: 'Disabled'
       cors: {
@@ -125,9 +127,9 @@ module functionApp 'br/public:avm/res/web/site:0.15.1' = {
 resource auth 'Microsoft.Web/sites/config@2022-03-01' = {
   name: '${name}/authsettingsV2'
   dependsOn: [
-    functionApp  // Ensure the Function App module completes before configuring authentication
+    functionApp
   ]
-  properties: {
+  properties: enableEasyAuth ? {
     globalValidation: {
       requireAuthentication: true
       unauthenticatedClientAction: 'Return401'
@@ -187,6 +189,10 @@ resource auth 'Microsoft.Web/sites/config@2022-03-01' = {
     platform: {
       enabled: true
       runtimeVersion: '~1'
+    }
+  } : {
+    platform: {
+      enabled: false
     }
   }
 }

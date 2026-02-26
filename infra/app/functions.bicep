@@ -19,6 +19,16 @@ param documentExtractorName string
 param figureProcessorName string
 param textProcessorName string
 param documentIngesterName string
+param evalRunnerName string = ''
+
+@description('Whether to deploy the eval runner function app')
+param deployEvalRunner bool = false
+
+@description('Target URL for the eval runner to call (backend /chat endpoint)')
+param evalTargetUrl string = ''
+
+@description('Entra App ID of the backend (for managed identity auth)')
+param evalTargetAppId string = ''
 // OpenID issuer provided by main template (e.g. https://login.microsoftonline.com/<tenantId>/v2.0)
 param openIdIssuer string
 
@@ -35,11 +45,13 @@ var documentExtractorRuntimeStorageName = '${abbrs.storageStorageAccounts}doc${t
 var figureProcessorRuntimeStorageName = '${abbrs.storageStorageAccounts}fig${take(resourceToken, 18)}'
 var textProcessorRuntimeStorageName = '${abbrs.storageStorageAccounts}txt${take(resourceToken, 18)}'
 var documentIngesterRuntimeStorageName = '${abbrs.storageStorageAccounts}ing${take(resourceToken, 18)}'
+var evalRunnerRuntimeStorageName = '${abbrs.storageStorageAccounts}evl${take(resourceToken, 18)}'
 
 var documentExtractorHostId = 'doc-skill-${take(resourceToken, 12)}'
 var figureProcessorHostId = 'fig-skill-${take(resourceToken, 12)}'
 var textProcessorHostId = 'txt-skill-${take(resourceToken, 12)}'
 var documentIngesterHostId = 'ing-skill-${take(resourceToken, 12)}'
+var evalRunnerHostId = 'evl-skill-${take(resourceToken, 12)}'
 
 var runtimeStorageRoles = [
   {
@@ -120,6 +132,21 @@ module documentIngesterRuntimeStorageAccount '../core/storage/storage-account.bi
   }
 }
 
+module evalRunnerRuntimeStorageAccount '../core/storage/storage-account.bicep' = if (deployEvalRunner) {
+  name: 'eval-runner-runtime-storage'
+  params: {
+    name: evalRunnerRuntimeStorageName
+    location: location
+    tags: tags
+    allowBlobPublicAccess: false
+    containers: [
+      {
+        name: deploymentContainerName
+      }
+    ]
+  }
+}
+
 resource documentExtractorRuntimeStorage 'Microsoft.Storage/storageAccounts@2024-01-01' existing = {
   name: documentExtractorRuntimeStorageName
 }
@@ -134,6 +161,10 @@ resource textProcessorRuntimeStorage 'Microsoft.Storage/storageAccounts@2024-01-
 
 resource documentIngesterRuntimeStorage 'Microsoft.Storage/storageAccounts@2024-01-01' existing = {
   name: documentIngesterRuntimeStorageName
+}
+
+resource evalRunnerRuntimeStorage 'Microsoft.Storage/storageAccounts@2024-01-01' existing = if (deployEvalRunner) {
+  name: evalRunnerRuntimeStorageName
 }
 
 resource documentExtractorRuntimeStorageRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for role in runtimeStorageRoles: {
@@ -185,6 +216,19 @@ resource documentIngesterRuntimeStorageRoles 'Microsoft.Authorization/roleAssign
   }
   dependsOn: [
     documentIngesterRuntimeStorageAccount
+  ]
+}]
+
+resource evalRunnerRuntimeStorageRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for role in runtimeStorageRoles: if (deployEvalRunner) {
+  name: guid(evalRunnerRuntimeStorage.id, role.roleDefinitionId, 'eval-storage-roles')
+  scope: evalRunnerRuntimeStorage
+  properties: {
+    principalId: functionsUserIdentity.outputs.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', role.roleDefinitionId)
+  }
+  dependsOn: [
+    evalRunnerRuntimeStorageAccount
   ]
 }]
 
@@ -245,6 +289,20 @@ module documentIngesterPlan 'br/public:avm/res/web/serverfarm:0.1.1' = {
   }
 }
 
+
+module evalRunnerPlan 'br/public:avm/res/web/serverfarm:0.1.1' = if (deployEvalRunner) {
+  name: 'eval-runner-plan'
+  params: {
+    name: '${abbrs.webServerFarms}eval-runner-${resourceToken}'
+    sku: {
+      name: 'FC1'
+      tier: 'FlexConsumption'
+    }
+    reserved: true
+    location: location
+    tags: tags
+  }
+}
 
 module functionsUserIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.1' = {
   name: 'functions-user-identity'
@@ -431,6 +489,53 @@ module documentIngester 'functions-app.bicep' = {
   ]
 }
 
+// Eval Runner Function App
+module evalRunnerAppReg '../core/auth/appregistration.bicep' = if (deployEvalRunner) {
+  name: 'eval-runner-appreg'
+  params: {
+    appUniqueName: '${evalRunnerName}-appreg'
+    cloudEnvironment: environment().name
+    webAppIdentityId: functionsUserIdentity.outputs.principalId
+    clientAppName: '${evalRunnerName}-app'
+    clientAppDisplayName: '${evalRunnerName} Entra App'
+    issuer: openIdIssuer
+    webAppEndpoint: 'https://${evalRunnerName}.azurewebsites.net'
+  }
+}
+
+module evalRunner 'functions-app.bicep' = if (deployEvalRunner) {
+  name: 'eval-runner-func'
+  params: {
+    name: evalRunnerName
+    location: location
+    tags: union(tags, { 'azd-service-name': 'eval-runner' })
+    applicationInsightsName: applicationInsightsName
+    appServicePlanId: deployEvalRunner ? evalRunnerPlan!.outputs.resourceId : ''
+    runtimeName: 'python'
+    runtimeVersion: '3.12'
+    identityId: functionsUserIdentity.outputs.resourceId
+    identityClientId: functionsUserIdentity.outputs.clientId
+    authClientId: deployEvalRunner ? evalRunnerAppReg!.outputs.clientAppId : ''
+    authIdentifierUri: deployEvalRunner ? evalRunnerAppReg!.outputs.identifierUri : ''
+    authTenantId: tenant().tenantId
+    searchUserAssignedIdentityClientId: searchUserAssignedIdentityClientId
+    storageAccountName: evalRunnerRuntimeStorageName
+    deploymentStorageContainerName: deploymentContainerName
+    appSettings: union(appEnvVariables, {
+      AzureFunctionsWebHost__hostid: evalRunnerHostId
+      EVAL_TARGET_URL: evalTargetUrl
+      EVAL_TARGET_APP_ID: evalTargetAppId
+      EVAL_BLOB_CONTAINER: 'eval-data'
+    })
+    enableEasyAuth: false
+    instanceMemoryMB: 2048
+    maximumInstanceCount: 10
+  }
+  dependsOn: [
+    evalRunnerRuntimeStorageAccount
+  ]
+}
+
 // RBAC: Document Extractor Roles
 module functionsIdentityRBAC 'functions-rbac.bicep' = {
   name: 'doc-extractor-rbac'
@@ -463,5 +568,9 @@ output documentExtractorAuthIdentifierUri string = documentExtractorAppReg.outpu
 output figureProcessorAuthIdentifierUri string = figureProcessorAppReg.outputs.identifierUri
 output textProcessorAuthIdentifierUri string = textProcessorAppReg.outputs.identifierUri
 output documentIngesterAuthIdentifierUri string = documentIngesterAppReg.outputs.identifierUri
+output evalRunnerName string = deployEvalRunner ? evalRunner!.outputs.name : ''
+output evalRunnerUrl string = deployEvalRunner ? evalRunner!.outputs.defaultHostname : ''
+output evalRunnerAuthIdentifierUri string = deployEvalRunner ? evalRunnerAppReg!.outputs.identifierUri : ''
 // Principal ID of the shared user-assigned identity (for additional role assignments in main.bicep)
 output principalId string = functionsUserIdentity.outputs.principalId
+output identityClientId string = functionsUserIdentity.outputs.clientId
