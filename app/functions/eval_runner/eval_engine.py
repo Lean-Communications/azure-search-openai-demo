@@ -312,6 +312,9 @@ async def run_evaluation(
             emit_eval_question_result(
                 run_id=run_id,
                 question=question,
+                truth=truth,
+                answer=answer,
+                context="\n---\n".join(context_texts[:3]),
                 groundedness=result["groundedness"],
                 relevance=result["relevance"],
                 citations_matched=citations_matched,

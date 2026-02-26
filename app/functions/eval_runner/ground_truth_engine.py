@@ -168,11 +168,22 @@ async def generate_ground_truth(
         logger.error("Failed during RAGAS transforms: %s", e, exc_info=True)
         raise
 
-    # Generate Q&A pairs
+    # Generate Q&A pairs in Norwegian
     try:
-        logger.info("Generating %d questions with RAGAS", num_questions)
+        from ragas.testset.synthesizers.single_hop.specific import SingleHopSpecificQuerySynthesizer
+
+        logger.info("Adapting RAGAS prompts for Norwegian")
+        query_synthesizer = SingleHopSpecificQuerySynthesizer(llm=llm)
+        adapted_prompts = await query_synthesizer.adapt_prompts("norwegian", llm=llm)
+        query_synthesizer.set_prompts(**adapted_prompts)
+
+        logger.info("Generating %d questions with RAGAS (Norwegian)", num_questions)
         generator = TestsetGenerator(llm=llm, embedding_model=embeddings, knowledge_graph=kg)
-        dataset = generator.generate(testset_size=num_questions, with_debugging_logs=True)
+        dataset = generator.generate(
+            testset_size=num_questions,
+            query_distribution=[(query_synthesizer, 1.0)],
+            with_debugging_logs=True,
+        )
         logger.info("RAGAS generated %d samples", len(dataset.samples))
     except Exception as e:
         logger.error("Failed during RAGAS generation: %s", e, exc_info=True)

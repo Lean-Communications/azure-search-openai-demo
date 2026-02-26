@@ -9,6 +9,7 @@ blob storage and emitting custom events to Application Insights.
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -86,6 +87,11 @@ async def generate_ground_truth(req: func.HttpRequest) -> func.HttpResponse:
     num_questions = body.get("num_questions", 200)
     num_search_documents = body.get("num_search_documents")
 
+    from telemetry import emit_operation_completed, emit_operation_started
+
+    emit_operation_started(operation="generate", details=f"num_questions={num_questions}")
+    start_time = time.monotonic()
+
     try:
         from ground_truth_engine import generate_ground_truth as gen_gt
 
@@ -95,12 +101,26 @@ async def generate_ground_truth(req: func.HttpRequest) -> func.HttpResponse:
             num_questions=num_questions,
             num_search_documents=num_search_documents,
         )
+        duration = time.monotonic() - start_time
+        emit_operation_completed(
+            operation="generate",
+            status="success",
+            duration_seconds=duration,
+            details=f"qa_pairs={count}",
+        )
         return func.HttpResponse(
             json.dumps({"status": "success", "qa_pairs_generated": count}),
             mimetype="application/json",
             status_code=200,
         )
     except Exception as e:
+        duration = time.monotonic() - start_time
+        emit_operation_completed(
+            operation="generate",
+            status="error",
+            duration_seconds=duration,
+            error=str(e),
+        )
         logger.error("Error generating ground truth: %s", str(e), exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
@@ -134,6 +154,11 @@ async def run_evaluation(req: func.HttpRequest) -> func.HttpResponse:
     num_questions = body.get("num_questions")
     overrides = body.get("overrides")
 
+    from telemetry import emit_operation_completed, emit_operation_started
+
+    emit_operation_started(operation="evaluate", details=f"num_questions={num_questions}")
+    start_time = time.monotonic()
+
     try:
         from eval_engine import run_evaluation as run_eval
 
@@ -142,12 +167,26 @@ async def run_evaluation(req: func.HttpRequest) -> func.HttpResponse:
             overrides=overrides,
             num_questions=num_questions,
         )
+        duration = time.monotonic() - start_time
+        emit_operation_completed(
+            operation="evaluate",
+            status="success",
+            duration_seconds=duration,
+            details=f"run_id={summary.get('run_id', 'unknown')} questions={summary.get('num_questions', 0)}",
+        )
         return func.HttpResponse(
             json.dumps({"status": "success", "summary": summary}),
             mimetype="application/json",
             status_code=200,
         )
     except Exception as e:
+        duration = time.monotonic() - start_time
+        emit_operation_completed(
+            operation="evaluate",
+            status="error",
+            duration_seconds=duration,
+            error=str(e),
+        )
         logger.error("Error running evaluation: %s", str(e), exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
