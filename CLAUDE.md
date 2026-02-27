@@ -59,11 +59,32 @@ azd deploy      # Application code only
 - **Python/Quart** (async ASGI framework), entry point in `app.py`
 - `approaches/` — RAG strategies (chat with query rewriting + retrieval + generation)
 - `prepdocslib/` — Document ingestion library (blob, search, parsing, embedding)
+  - `pdfparser.py` — PDF/DOCX/PPTX parsers (`LocalPdfParser`, `LocalDocxParser`, `LocalPptxParser`, `HybridPdfParser`, `DocumentAnalysisParser`)
+  - `officeimageextractor.py` — Image extraction from PPTX/DOCX with context metadata
+  - `filestrategy.py` — Orchestrates parsing, summary generation, image processing, and indexing
+  - `searchmanager.py` — Azure Search index creation, schema migration, and document upload
+  - `embeddings.py` — Text embeddings (OpenAI) and image embeddings (Azure Vision)
 - `chat_history/` — CosmosDB chat history storage
 - Served via Gunicorn + Uvicorn worker
 
 ### Azure Functions (`app/functions/`)
 Cloud ingestion pipeline functions. Each bundles a copy of `prepdocslib` — run `python scripts/copy_prepdocslib.py` after modifying the library.
+
+### Document Ingestion Pipeline
+The ingestion pipeline supports multiple document formats with format-specific parsers:
+
+| Format | Parser | DI Required? | Images? |
+|--------|--------|-------------|---------|
+| PDF (digital) | `HybridPdfParser` / `LocalPdfParser` | No (local) | Yes (PyMuPDF) |
+| PDF (scanned) | `HybridPdfParser` → `DocumentAnalysisParser` | Only scanned pages | Yes (DI figures) |
+| PPTX | `LocalPptxParser` | No (local) | Yes (python-pptx) |
+| DOCX | `LocalDocxParser` | No (local) | Yes (python-docx) |
+| XLSX, PNG, JPG, etc. | `DocumentAnalysisParser` | Yes | Via DI |
+
+**Environment variables for parsing:**
+- `USE_HYBRID_PDF_PARSER=true` — Enable per-page triage for PDFs (digital pages local, scanned pages to DI)
+- `USE_LOCAL_PDF_PARSER=true` — Force all PDFs to local parser (overrides hybrid)
+- `USE_DOCUMENT_SUMMARY=true` — Generate per-document LLM summaries stamped on images
 
 ### Infrastructure (`infra/`)
 Bicep templates for Azure resources. See `.github/instructions/bicep.instructions.md` for Bicep coding conventions.
@@ -106,6 +127,17 @@ Config in `app/frontend/components.json`. Style: default, baseColor: neutral, CS
 - **Unit**: `tests/test_*.py` — individual functions/methods
 - Use mocks from `tests/conftest.py`, prefer mocking at HTTP level
 - Coverage threshold: 90% for both overall and diff coverage
+- Run tests via `.venv/bin/pytest` (no `--timeout` flag — not installed)
+
+### Ingestion pipeline tests
+```bash
+.venv/bin/pytest tests/test_local_pptxparser.py -v      # LocalPptxParser
+.venv/bin/pytest tests/test_hybrid_pdfparser.py -v       # HybridPdfParser
+.venv/bin/pytest tests/test_officeimageextractor.py -v   # Office image extraction
+.venv/bin/pytest tests/test_document_summary.py -v       # Document summaries
+.venv/bin/pytest tests/test_hybrid_integration.py -v     # End-to-end integration
+.venv/bin/pytest tests/test_page.py -v                   # Page/ImageOnPage serialization
+```
 
 ## Upgrading Backend Dependencies
 ```bash
