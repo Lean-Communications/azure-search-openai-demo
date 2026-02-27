@@ -178,6 +178,11 @@ class LocalPptxParser(Parser):
             offset += len(page_text)
 
         # Phase 2: extract and merge images
+        # Note: appending image placeholders makes page text longer than the
+        # offsets computed in Phase 1.  This matches the behaviour of
+        # extract_and_merge_office_images() in officeimageextractor.py and is
+        # harmless because downstream code (splitter, indexer) does not rely
+        # on offsets being exact after image merge.
         from .officeimageextractor import _extract_pptx_images
 
         images = _extract_pptx_images(content_bytes, doc_name)
