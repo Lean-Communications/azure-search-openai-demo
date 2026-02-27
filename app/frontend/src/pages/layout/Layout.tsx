@@ -14,7 +14,7 @@ const Layout = () => {
             <header className={styles.header} role={"banner"}>
                 <div className={styles.headerContainer}>
                     <Link to="/" className={styles.headerTitleContainer}>
-                        <h3 className={styles.headerTitle}>{t("headerTitle")}</h3>
+                        <img src="/lean_dark.png" alt="Lean Communications" className={styles.headerLogo} />
                     </Link>
                     <div className={styles.loginMenuContainer}>{useLogin && <LoginButton />}</div>
                 </div>

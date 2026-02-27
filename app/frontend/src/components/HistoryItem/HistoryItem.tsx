@@ -1,8 +1,8 @@
 import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import styles from "./HistoryItem.module.css";
-import { DefaultButton } from "@fluentui/react";
-import { Delete24Regular } from "@fluentui/react-icons";
+import { Button } from "@/components/ui/button";
+import { Trash2 } from "lucide-react";
 
 export interface HistoryData {
     id: string;
@@ -30,7 +30,7 @@ export function HistoryItem({ item, onSelect, onDelete }: HistoryItemProps) {
                 <div className={styles.historyItemTitle}>{item.title}</div>
             </button>
             <button onClick={() => setIsModalOpen(true)} className={styles.deleteButton} aria-label="delete this chat history">
-                <Delete24Regular className={styles.deleteIcon} />
+                <Trash2 className={`${styles.deleteIcon} h-5 w-5`} />
             </button>
             <DeleteHistoryModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onConfirm={handleDelete} />
         </div>
@@ -46,12 +46,12 @@ function DeleteHistoryModal({ isOpen, onClose, onConfirm }: { isOpen: boolean; o
                 <h2 className={styles.modalTitle}>{t("history.deleteModalTitle")}</h2>
                 <p className={styles.modalDescription}>{t("history.deleteModalDescription")}</p>
                 <div className={styles.modalActions}>
-                    <DefaultButton onClick={onClose} className={styles.modalCancelButton}>
+                    <Button variant="outline" onClick={onClose} className={styles.modalCancelButton}>
                         {t("history.cancelLabel")}
-                    </DefaultButton>
-                    <DefaultButton onClick={onConfirm} className={styles.modalConfirmButton}>
+                    </Button>
+                    <Button variant="destructive" onClick={onConfirm} className={styles.modalConfirmButton}>
                         {t("history.deleteLabel")}
-                    </DefaultButton>
+                    </Button>
                 </div>
             </div>
         </div>

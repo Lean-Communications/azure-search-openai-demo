@@ -1,30 +1,85 @@
+@import "tailwindcss";
+
+@layer base {
+    :root {
+        --background: 150 12% 97%;
+        --foreground: 198 97% 12%;
+        --card: 0 0% 100%;
+        --card-foreground: 198 97% 12%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 198 97% 12%;
+        --primary: 88 66% 45%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 150 12% 93%;
+        --secondary-foreground: 198 60% 18%;
+        --muted: 150 8% 94%;
+        --muted-foreground: 198 15% 40%;
+        --accent: 88 30% 92%;
+        --accent-foreground: 88 50% 30%;
+        --destructive: 0 84% 60%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 198 12% 87%;
+        --input: 198 12% 87%;
+        --ring: 88 66% 45%;
+        --radius: 0.625rem;
+
+        /* Brand palette */
+        --brand-green: 88 66% 45%;
+        --brand-navy: 198 97% 12%;
+        --brand-green-light: 88 50% 85%;
+        --brand-green-dark: 88 66% 36%;
+        --brand-navy-light: 198 60% 25%;
+    }
+}
+
+@theme inline {
+    --color-background: hsl(var(--background));
+    --color-foreground: hsl(var(--foreground));
+    --color-card: hsl(var(--card));
+    --color-card-foreground: hsl(var(--card-foreground));
+    --color-popover: hsl(var(--popover));
+    --color-popover-foreground: hsl(var(--popover-foreground));
+    --color-primary: hsl(var(--primary));
+    --color-primary-foreground: hsl(var(--primary-foreground));
+    --color-secondary: hsl(var(--secondary));
+    --color-secondary-foreground: hsl(var(--secondary-foreground));
+    --color-muted: hsl(var(--muted));
+    --color-muted-foreground: hsl(var(--muted-foreground));
+    --color-accent: hsl(var(--accent));
+    --color-accent-foreground: hsl(var(--accent-foreground));
+    --color-destructive: hsl(var(--destructive));
+    --color-destructive-foreground: hsl(var(--destructive-foreground));
+    --color-border: hsl(var(--border));
+    --color-input: hsl(var(--input));
+    --color-ring: hsl(var(--ring));
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+}
+
 * {
     box-sizing: border-box;
 }
 
 html {
-    background: #f2f2f2;
-    font-size: 12px; /* Root font size for 320px width screens */
+    background: hsl(var(--background));
+    font-size: 12px;
     font-family:
-        "Segoe UI",
+        "Outfit",
+        system-ui,
         -apple-system,
-        BlinkMacSystemFont,
-        "Roboto",
-        "Oxygen",
-        "Ubuntu",
-        "Cantarell",
-        "Fira Sans",
-        "Droid Sans",
-        "Helvetica Neue",
         sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.01em;
 }
 
 body {
     height: 100%;
     margin: 0;
     padding: 0;
+    color: hsl(var(--foreground));
 }
 
 #root {
@@ -33,24 +88,24 @@ body {
 
 @media (min-width: 480px) {
     html {
-        font-size: 13px; /* Slightly larger font size for larger phones */
+        font-size: 13px;
     }
 }
 
 @media (min-width: 600px) {
     html {
-        font-size: 14px; /* Adjust for small tablets and large phones in landscape */
+        font-size: 14px;
     }
 }
 
 @media (min-width: 768px) {
     html {
-        font-size: 15px; /* Suitable for medium tablets */
+        font-size: 15px;
     }
 }
 
 @media (min-width: 992px) {
     html {
-        font-size: 16px; /* Standard size for desktops */
+        font-size: 16px;
     }
 }

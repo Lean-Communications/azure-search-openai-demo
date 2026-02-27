@@ -1,5 +1,5 @@
 import { useMsal } from "@azure/msal-react";
-import { Pivot, PivotItem } from "@fluentui/react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DOMPurify from "dompurify";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,8 +22,6 @@ interface Props {
     onCitationClicked?: (citationFilePath: string) => void;
 }
 
-const pivotItemDisabledStyle = { disabled: true, style: { color: "grey" } };
-
 export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeight, className, onActiveTabChanged, onCitationClicked }: Props) => {
     const isDisabledThoughtProcessTab: boolean = !answer.context.thoughts;
     const dataPoints = answer.context.data_points;
@@ -43,8 +41,6 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
     const fetchCitation = async () => {
         const token = client ? await getToken(client) : undefined;
         if (activeCitation) {
-            // Get hash from the URL as it may contain #page=N
-            // which helps browser PDF renderer jump to correct page N
             const originalHash = activeCitation.indexOf("#") ? activeCitation.split("#")[1] : "";
             const response = await fetch(activeCitation, {
                 method: "GET",
@@ -52,7 +48,6 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
             });
             const citationContent = await response.blob();
             let citationObjectUrl = URL.createObjectURL(citationContent);
-            // Add hash back to the new blob URL
             if (originalHash) {
                 citationObjectUrl += "#" + originalHash;
             }
@@ -68,7 +63,6 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
             return null;
         }
 
-        // Strip the hash (e.g. #slide=249) before extracting the file extension
         const urlWithoutHash = activeCitation.split("#")[0];
         const fileExtension = urlWithoutHash.split(".").pop()?.toLowerCase();
 
@@ -81,7 +75,6 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
                 return <MarkdownViewer src={activeCitation} />;
             case "pptx":
             case "docx": {
-                // Extract citation reference: "/content/File.pptx#slide=249" → "File.pptx#slide=249"
                 const citationRef = activeCitation.replace(/^\/content\//, "");
                 const textItems = answer.context.data_points?.text ?? [];
                 const matchingChunks = textItems
@@ -108,32 +101,31 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
     };
 
     return (
-        <Pivot
+        <Tabs
             className={className}
-            selectedKey={activeTab}
-            onLinkClick={pivotItem => pivotItem && onActiveTabChanged(pivotItem.props.itemKey! as AnalysisPanelTabs)}
+            value={activeTab}
+            onValueChange={value => onActiveTabChanged(value as AnalysisPanelTabs)}
         >
-            <PivotItem
-                itemKey={AnalysisPanelTabs.ThoughtProcessTab}
-                headerText={t("headerTexts.thoughtProcess")}
-                headerButtonProps={isDisabledThoughtProcessTab ? pivotItemDisabledStyle : undefined}
-            >
+            <TabsList>
+                <TabsTrigger value={AnalysisPanelTabs.ThoughtProcessTab} disabled={isDisabledThoughtProcessTab}>
+                    {t("headerTexts.thoughtProcess")}
+                </TabsTrigger>
+                <TabsTrigger value={AnalysisPanelTabs.SupportingContentTab} disabled={isDisabledSupportingContentTab}>
+                    {t("headerTexts.supportingContent")}
+                </TabsTrigger>
+                <TabsTrigger value={AnalysisPanelTabs.CitationTab} disabled={isDisabledCitationTab}>
+                    {t("headerTexts.citation")}
+                </TabsTrigger>
+            </TabsList>
+            <TabsContent value={AnalysisPanelTabs.ThoughtProcessTab}>
                 <ThoughtProcess thoughts={answer.context.thoughts || []} onCitationClicked={onCitationClicked} />
-            </PivotItem>
-            <PivotItem
-                itemKey={AnalysisPanelTabs.SupportingContentTab}
-                headerText={t("headerTexts.supportingContent")}
-                headerButtonProps={isDisabledSupportingContentTab ? pivotItemDisabledStyle : undefined}
-            >
+            </TabsContent>
+            <TabsContent value={AnalysisPanelTabs.SupportingContentTab}>
                 <SupportingContent supportingContent={answer.context.data_points} />
-            </PivotItem>
-            <PivotItem
-                itemKey={AnalysisPanelTabs.CitationTab}
-                headerText={t("headerTexts.citation")}
-                headerButtonProps={isDisabledCitationTab ? pivotItemDisabledStyle : undefined}
-            >
+            </TabsContent>
+            <TabsContent value={AnalysisPanelTabs.CitationTab}>
                 {renderFileViewer()}
-            </PivotItem>
-        </Pivot>
+            </TabsContent>
+        </Tabs>
     );
 };

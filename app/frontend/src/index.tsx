@@ -3,8 +3,8 @@ import ReactDOM from "react-dom/client";
 import { createHashRouter, RouterProvider } from "react-router-dom";
 import { I18nextProvider } from "react-i18next";
 import { HelmetProvider } from "react-helmet-async";
-import { initializeIcons } from "@fluentui/react";
 import { MsalProvider } from "@azure/msal-react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthenticationResult, EventType, PublicClientApplication } from "@azure/msal-browser";
 
 import "./index.css";
@@ -13,8 +13,6 @@ import Chat from "./pages/chat/Chat";
 import LayoutWrapper from "./layoutWrapper";
 import i18next from "./i18n/config";
 import { msalConfig, useLogin } from "./authConfig";
-
-initializeIcons();
 
 const router = createHashRouter([
     {
@@ -70,13 +68,15 @@ const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement)
         <React.StrictMode>
             <I18nextProvider i18n={i18next}>
                 <HelmetProvider>
-                    {useLogin && msalInstance ? (
-                        <MsalProvider instance={msalInstance}>
+                    <TooltipProvider>
+                        {useLogin && msalInstance ? (
+                            <MsalProvider instance={msalInstance}>
+                                <RouterProvider router={router} />
+                            </MsalProvider>
+                        ) : (
                             <RouterProvider router={router} />
-                        </MsalProvider>
-                    ) : (
-                        <RouterProvider router={router} />
-                    )}
+                        )}
+                    </TooltipProvider>
                 </HelmetProvider>
             </I18nextProvider>
         </React.StrictMode>

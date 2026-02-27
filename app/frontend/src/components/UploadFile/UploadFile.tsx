@@ -1,7 +1,8 @@
 import React, { useState, ChangeEvent } from "react";
-import { Callout, Label, Text } from "@fluentui/react";
-import { Button } from "@fluentui/react-components";
-import { Add24Regular, Delete24Regular } from "@fluentui/react-icons";
+import { Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useMsal } from "@azure/msal-react";
 import { useTranslation } from "react-i18next";
 
@@ -15,7 +16,6 @@ interface Props {
 }
 
 export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
-    // State variables to manage the component behavior
     const [isCalloutVisible, setIsCalloutVisible] = useState<boolean>(false);
     const [isUploading, setIsUploading] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -31,11 +31,9 @@ export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
 
     const client = useMsal().instance;
 
-    // Handler for the "Manage file uploads" button
     const handleButtonClick = async () => {
-        setIsCalloutVisible(!isCalloutVisible); // Toggle the Callout visibility
+        setIsCalloutVisible(!isCalloutVisible);
 
-        // Update uploaded files by calling the API
         try {
             const idToken = await getToken(client);
             if (!idToken) {
@@ -74,13 +72,12 @@ export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
         }
     };
 
-    // Handler for the form submission (file upload)
     const handleUploadFile = async (e: ChangeEvent<HTMLInputElement>) => {
         e.preventDefault();
         if (!e.target.files || e.target.files.length === 0) {
             return;
         }
-        setIsUploading(true); // Start the loading state
+        setIsUploading(true);
         const file: File = e.target.files[0];
         const formData = new FormData();
         formData.append("file", file);
@@ -104,63 +101,55 @@ export const UploadFile: React.FC<Props> = ({ className, disabled }: Props) => {
 
     return (
         <div className={`${styles.container} ${className ?? ""}`}>
-            <div>
-                <Button id="calloutButton" icon={<Add24Regular />} disabled={disabled} onClick={handleButtonClick}>
-                    {t("upload.manageFileUploads")}
-                </Button>
+            <Popover open={isCalloutVisible} onOpenChange={setIsCalloutVisible}>
+                <PopoverTrigger asChild>
+                    <Button variant="outline" disabled={disabled} onClick={handleButtonClick}>
+                        <Plus className="h-5 w-5" />
+                        {t("upload.manageFileUploads")}
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className={`${styles.callout} w-80`}>
+                    <form encType="multipart/form-data">
+                        <div>
+                            <Label>{t("upload.fileLabel")}</Label>
+                            <input
+                                accept=".txt, .md, .json, .png, .jpg, .jpeg, .bmp, .heic, .tiff, .pdf, .docx, .xlsx, .pptx, .html"
+                                className={styles.chooseFiles}
+                                type="file"
+                                onChange={handleUploadFile}
+                            />
+                        </div>
+                    </form>
 
-                {isCalloutVisible && (
-                    <Callout
-                        role="dialog"
-                        gapSpace={0}
-                        className={styles.callout}
-                        target="#calloutButton"
-                        onDismiss={() => setIsCalloutVisible(false)}
-                        setInitialFocus
-                    >
-                        <form encType="multipart/form-data">
-                            <div>
-                                <Label>{t("upload.fileLabel")}</Label>
-                                <input
-                                    accept=".txt, .md, .json, .png, .jpg, .jpeg, .bmp, .heic, .tiff, .pdf, .docx, .xlsx, .pptx, .html"
-                                    className={styles.chooseFiles}
-                                    type="file"
-                                    onChange={handleUploadFile}
-                                />
+                    {isUploading && <p className="text-sm">{t("upload.uploadingFiles")}</p>}
+                    {!isUploading && uploadedFileError && <p className="text-sm text-red-500">{uploadedFileError}</p>}
+                    {!isUploading && uploadedFile && <p className="text-sm">{uploadedFile.message}</p>}
+
+                    <h3 className="font-semibold mt-2">{t("upload.uploadedFilesLabel")}</h3>
+
+                    {isLoading && <p className="text-sm">{t("upload.loading")}</p>}
+                    {!isLoading && uploadedFiles.length === 0 && <p className="text-sm">{t("upload.noFilesUploaded")}</p>}
+                    {uploadedFiles.map((filename, index) => {
+                        return (
+                            <div key={index} className={styles.list}>
+                                <div className={styles.item}>{filename}</div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleRemoveFile(filename)}
+                                    disabled={deletionStatus[filename] === "pending" || deletionStatus[filename] === "success"}
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                    {!deletionStatus[filename] && t("upload.deleteFile")}
+                                    {deletionStatus[filename] == "pending" && t("upload.deletingFile")}
+                                    {deletionStatus[filename] == "error" && t("upload.errorDeleting")}
+                                    {deletionStatus[filename] == "success" && t("upload.fileDeleted")}
+                                </Button>
                             </div>
-                        </form>
-
-                        {/* Show a loading message while files are being uploaded */}
-                        {isUploading && <Text>{t("upload.uploadingFiles")}</Text>}
-                        {!isUploading && uploadedFileError && <Text>{uploadedFileError}</Text>}
-                        {!isUploading && uploadedFile && <Text>{uploadedFile.message}</Text>}
-
-                        {/* Display the list of already uploaded */}
-                        <h3>{t("upload.uploadedFilesLabel")}</h3>
-
-                        {isLoading && <Text>{t("upload.loading")}</Text>}
-                        {!isLoading && uploadedFiles.length === 0 && <Text>{t("upload.noFilesUploaded")}</Text>}
-                        {uploadedFiles.map((filename, index) => {
-                            return (
-                                <div key={index} className={styles.list}>
-                                    <div className={styles.item}>{filename}</div>
-                                    {/* Button to remove a file from the list */}
-                                    <Button
-                                        icon={<Delete24Regular />}
-                                        onClick={() => handleRemoveFile(filename)}
-                                        disabled={deletionStatus[filename] === "pending" || deletionStatus[filename] === "success"}
-                                    >
-                                        {!deletionStatus[filename] && t("upload.deleteFile")}
-                                        {deletionStatus[filename] == "pending" && t("upload.deletingFile")}
-                                        {deletionStatus[filename] == "error" && t("upload.errorDeleting")}
-                                        {deletionStatus[filename] == "success" && t("upload.fileDeleted")}
-                                    </Button>
-                                </div>
-                            );
-                        })}
-                    </Callout>
-                )}
-            </div>
+                        );
+                    })}
+                </PopoverContent>
+            </Popover>
         </div>
     );
 };

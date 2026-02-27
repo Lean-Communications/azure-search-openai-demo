@@ -1,6 +1,7 @@
 .languagePicker {
     word-break: break-word;
-    background: #dbdbdb;
+    background: white;
+    border: 1px solid hsl(198 12% 87%);
     border-radius: 0.5rem;
     display: flex;
     justify-content: center;
@@ -10,13 +11,16 @@
     margin-bottom: 0.3125rem;
     cursor: pointer;
     width: fit-content;
+    transition:
+        border-color 200ms ease,
+        box-shadow 200ms ease;
 }
 
 .languagePicker:hover {
+    border-color: #78bd27;
     box-shadow:
-        0rem 0.5rem 1rem rgba(0, 0, 0, 0.14),
-        0rem 0rem 0.125rem rgba(0, 0, 0, 0.12);
-    outline: 0.125rem solid rgba(115, 118, 225, 1);
+        0 2px 6px hsl(198 20% 20% / 0.06),
+        0 8px 24px hsl(198 20% 20% / 0.06);
 }
 
 .languagePickerIcon {

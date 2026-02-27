@@ -1,15 +1,8 @@
-import { ITextFieldProps, DefaultButton, IconButton, IButtonStyles, Callout, IStackTokens, Stack, IStackStyles, initializeIcons } from "@fluentui/react";
-import { useBoolean, useId } from "@fluentui/react-hooks";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-
-const stackTokens: IStackTokens = {
-    childrenGap: 4,
-    maxWidth: 300
-};
-
-const labelCalloutStackStyles: Partial<IStackStyles> = { root: { padding: 20 } };
-const iconButtonStyles: Partial<IButtonStyles> = { root: { marginBottom: -3 } };
-const iconProps = { iconName: "Info" };
+import { Info } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface IHelpCalloutProps {
     label: string | undefined;
@@ -19,34 +12,23 @@ interface IHelpCalloutProps {
 }
 
 export const HelpCallout = (props: IHelpCalloutProps): JSX.Element => {
-    const [isCalloutVisible, { toggle: toggleIsCalloutVisible }] = useBoolean(false);
-    const descriptionId: string = useId("description");
-    const iconButtonId: string = useId("iconButton");
     const { t } = useTranslation();
 
     return (
-        <>
-            <Stack horizontal verticalAlign="center" tokens={stackTokens}>
-                <label id={props.labelId} htmlFor={props.fieldId}>
-                    {props.label}
-                </label>
-                <IconButton
-                    id={iconButtonId}
-                    iconProps={iconProps}
-                    title={t("tooltips.info")}
-                    ariaLabel={t("tooltips.info")}
-                    onClick={toggleIsCalloutVisible}
-                    styles={iconButtonStyles}
-                />
-            </Stack>
-            {isCalloutVisible && (
-                <Callout target={"#" + iconButtonId} setInitialFocus onDismiss={toggleIsCalloutVisible} ariaDescribedBy={descriptionId} role="alertdialog">
-                    <Stack tokens={stackTokens} horizontalAlign="start" styles={labelCalloutStackStyles}>
-                        <span id={descriptionId}>{props.helpText}</span>
-                        <DefaultButton onClick={toggleIsCalloutVisible}>{t("labels.closeButton")}</DefaultButton>
-                    </Stack>
-                </Callout>
-            )}
-        </>
+        <div className="flex items-center gap-1 max-w-[300px]">
+            <label id={props.labelId} htmlFor={props.fieldId}>
+                {props.label}
+            </label>
+            <Popover>
+                <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 -mb-0.5" title={t("tooltips.info")} aria-label={t("tooltips.info")}>
+                        <Info className="h-4 w-4" />
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="max-w-[300px]">
+                    <p className="text-sm">{props.helpText}</p>
+                </PopoverContent>
+            </Popover>
+        </div>
     );
 };

@@ -1,15 +1,6 @@
-import { Label } from "@fluentui/react";
 import { useMsal } from "@azure/msal-react";
-import {
-    DataGridBody,
-    DataGridRow,
-    DataGrid,
-    DataGridHeader,
-    DataGridHeaderCell,
-    DataGridCell,
-    createTableColumn,
-    TableColumnDefinition
-} from "@fluentui/react-table";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getTokenClaims } from "../../authConfig";
 import { useState, useEffect } from "react";
 
@@ -43,7 +34,6 @@ export const TokenClaimsDisplay = () => {
         return Object.keys(o ?? {}).map((key: string) => {
             let originalKey = key;
             try {
-                // Some claim names may be a URL to a full schema, just use the last part of the URL in this case
                 const url = new URL(key);
                 const parts = url.pathname.split("/");
                 key = parts[parts.length - 1];
@@ -55,44 +45,25 @@ export const TokenClaimsDisplay = () => {
     };
     const items: Claim[] = createClaims(claims);
 
-    const columns: TableColumnDefinition<Claim>[] = [
-        createTableColumn<Claim>({
-            columnId: "name",
-            compare: (a: Claim, b: Claim) => {
-                return a.name.localeCompare(b.name);
-            },
-            renderHeaderCell: () => {
-                return "Name";
-            },
-            renderCell: item => {
-                return item.name;
-            }
-        }),
-        createTableColumn<Claim>({
-            columnId: "value",
-            compare: (a: Claim, b: Claim) => {
-                return a.value.localeCompare(b.value);
-            },
-            renderHeaderCell: () => {
-                return "Value";
-            },
-            renderCell: item => {
-                return item.value;
-            }
-        })
-    ];
-
     return (
-        <div style={{ marginTop: "20px" }}>
+        <div className="mt-5">
             <Label>ID Token Claims</Label>
-            <DataGrid items={items} columns={columns} sortable getRowId={item => item.name}>
-                <DataGridHeader>
-                    <DataGridRow>{({ renderHeaderCell }) => <DataGridHeaderCell>{renderHeaderCell()}</DataGridHeaderCell>}</DataGridRow>
-                </DataGridHeader>
-                <DataGridBody<Claim>>
-                    {({ item, rowId }) => <DataGridRow<Claim> key={rowId}>{({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}</DataGridRow>}
-                </DataGridBody>
-            </DataGrid>
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Value</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {items.map(item => (
+                        <TableRow key={item.name}>
+                            <TableCell>{item.name}</TableCell>
+                            <TableCell>{item.value}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
         </div>
     );
 };

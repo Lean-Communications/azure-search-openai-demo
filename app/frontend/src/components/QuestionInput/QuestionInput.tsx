@@ -1,20 +1,14 @@
 import { useState, useEffect, useContext } from "react";
-import { Stack, TextField } from "@fluentui/react";
-import { Button, Tooltip } from "@fluentui/react-components";
-import { Send28Filled } from "@fluentui/react-icons";
+import { ArrowUp, Square } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTranslation } from "react-i18next";
 
 import styles from "./QuestionInput.module.css";
 import { SpeechInput } from "./SpeechInput";
 import { LoginContext } from "../../loginContext";
 import { requireLogin } from "../../authConfig";
-
-const StopCircleIcon = () => (
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="14" cy="14" r="12.5" stroke="black" strokeWidth="2" fill="none" />
-        <rect x="9" y="9" width="10" height="10" rx="1" fill="black" />
-    </svg>
-);
 
 interface Props {
     onSend: (question: string) => void;
@@ -66,12 +60,8 @@ export const QuestionInput = ({ onSend, onStop, disabled, placeholder, clearOnSe
         setIsComposing(false);
     };
 
-    const onQuestionChange = (_ev: React.FormEvent<HTMLInputElement | HTMLTextAreaElement>, newValue?: string) => {
-        if (!newValue) {
-            setQuestion("");
-        } else {
-            setQuestion(newValue);
-        }
+    const onQuestionChange = (ev: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setQuestion(ev.target.value || "");
     };
 
     const disableRequiredAccessControl = requireLogin && !loggedIn;
@@ -82,38 +72,45 @@ export const QuestionInput = ({ onSend, onStop, disabled, placeholder, clearOnSe
     }
 
     return (
-        <Stack horizontal className={styles.questionInputContainer}>
-            <TextField
-                className={styles.questionInputTextArea}
+        <div className={`${styles.questionInputContainer} flex`}>
+            <Textarea
+                className={`${styles.questionInputTextArea} min-h-0 border-0 resize-none bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none`}
                 disabled={disableRequiredAccessControl}
                 placeholder={placeholder}
-                multiline
-                resizable={false}
-                autoAdjustHeight
-                borderless
                 value={question}
                 onChange={onQuestionChange}
                 onKeyDown={onEnterPress}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
+                rows={1}
             />
             <div className={styles.questionInputButtonsContainer}>
                 {isStreaming || isLoading ? (
-                    <Tooltip content={t("tooltips.stopStreaming")} relationship="label">
-                        <Button size="large" icon={<StopCircleIcon />} onClick={onStop} />
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button className={styles.sendButton} onClick={onStop} aria-label={t("tooltips.stopStreaming")}>
+                                <Square className="h-4 w-4" fill="white" stroke="white" />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("tooltips.stopStreaming")}</TooltipContent>
                     </Tooltip>
                 ) : (
-                    <Tooltip content={t("tooltips.submitQuestion")} relationship="label">
-                        <Button
-                            size="large"
-                            icon={<Send28Filled primaryFill="rgba(115, 118, 225, 1)" />}
-                            disabled={sendQuestionDisabled}
-                            onClick={sendQuestion}
-                        />
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                className={`${styles.sendButton} ${sendQuestionDisabled ? styles.sendButtonDisabled : ""}`}
+                                disabled={sendQuestionDisabled}
+                                onClick={sendQuestion}
+                                aria-label={t("tooltips.submitQuestion")}
+                            >
+                                <ArrowUp className="h-4.5 w-4.5" strokeWidth={2.5} />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("tooltips.submitQuestion")}</TooltipContent>
                     </Tooltip>
                 )}
             </div>
             {showSpeechInput && <SpeechInput updateQuestion={setQuestion} />}
-        </Stack>
+        </div>
     );
 };

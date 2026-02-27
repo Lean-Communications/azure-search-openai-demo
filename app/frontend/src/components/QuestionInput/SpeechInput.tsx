@@ -1,6 +1,7 @@
 import { SetStateAction, useState } from "react";
-import { Button, Tooltip } from "@fluentui/react-components";
-import { Mic28Filled } from "@fluentui/react-icons";
+import { Mic } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTranslation } from "react-i18next";
 import styles from "./QuestionInput.module.css";
 import { supportedLngs } from "../../i18n/config";
@@ -62,7 +63,6 @@ export const SpeechInput = ({ updateQuestion }: Props) => {
             updateQuestion(input);
         };
         speechRecognition.onend = () => {
-            // NOTE: In some browsers (e.g. Chrome), the recording will stop automatically after a few seconds of silence.
             setIsRecording(false);
         };
         speechRecognition.onerror = (event: { error: string }) => {
@@ -100,15 +100,25 @@ export const SpeechInput = ({ updateQuestion }: Props) => {
         <>
             {!isRecording && (
                 <div className={styles.questionInputButtonsContainer}>
-                    <Tooltip content={t("tooltips.askWithVoice")} relationship="label">
-                        <Button size="large" icon={<Mic28Filled primaryFill="rgba(115, 118, 225, 1)" />} onClick={startRecording} />
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button size="lg" variant="ghost" onClick={startRecording}>
+                                <Mic className="h-7 w-7" color="#78bd27" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("tooltips.askWithVoice")}</TooltipContent>
                     </Tooltip>
                 </div>
             )}
             {isRecording && (
                 <div className={styles.questionInputButtonsContainer}>
-                    <Tooltip content={t("tooltips.stopRecording")} relationship="label">
-                        <Button size="large" icon={<Mic28Filled primaryFill="rgba(250, 0, 0, 0.7)" />} disabled={!isRecording} onClick={stopRecording} />
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button size="lg" variant="ghost" disabled={!isRecording} onClick={stopRecording}>
+                                <Mic className="h-7 w-7" color="rgba(250, 0, 0, 0.7)" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t("tooltips.stopRecording")}</TooltipContent>
                     </Tooltip>
                 </div>
             )}
