@@ -475,28 +475,39 @@ class SearchManager:
                     existing_index.vector_search.compressions.append(text_vector_compression)
                     await search_index_client.create_or_update_index(existing_index)
 
-                if (
-                    images_field
-                    and images_field.fields
-                    and not any(field.name == "images" for field in existing_index.fields)
-                ):
-                    logger.info("Adding %s field for image embeddings", images_field.name)
-                    images_field.fields[0].stored = True
-                    existing_index.fields.append(images_field)
-                    if image_vector_search_profile is None or image_vector_algorithm is None:
-                        raise ValueError("Image vector search profile and algorithm must be set")
-                    if existing_index.vector_search is None:
-                        raise ValueError("Image vector search is not enabled for the existing index")
-                    if existing_index.vector_search.profiles is None:
-                        existing_index.vector_search.profiles = []
-                    existing_index.vector_search.profiles.append(image_vector_search_profile)
-                    if existing_index.vector_search.algorithms is None:
-                        existing_index.vector_search.algorithms = []
-                    existing_index.vector_search.algorithms.append(image_vector_algorithm)
-                    if existing_index.vector_search.vectorizers is None:
-                        existing_index.vector_search.vectorizers = []
-                    existing_index.vector_search.vectorizers.append(image_vectorizer)
-                    await search_index_client.create_or_update_index(existing_index)
+                if images_field and images_field.fields:
+                    existing_images_field = next(
+                        (f for f in existing_index.fields if f.name == "images"), None
+                    )
+                    if existing_images_field is None:
+                        logger.info("Adding %s field for image embeddings", images_field.name)
+                        images_field.fields[0].stored = True
+                        existing_index.fields.append(images_field)
+                        if image_vector_search_profile is None or image_vector_algorithm is None:
+                            raise ValueError("Image vector search profile and algorithm must be set")
+                        if existing_index.vector_search is None:
+                            raise ValueError("Image vector search is not enabled for the existing index")
+                        if existing_index.vector_search.profiles is None:
+                            existing_index.vector_search.profiles = []
+                        existing_index.vector_search.profiles.append(image_vector_search_profile)
+                        if existing_index.vector_search.algorithms is None:
+                            existing_index.vector_search.algorithms = []
+                        existing_index.vector_search.algorithms.append(image_vector_algorithm)
+                        if existing_index.vector_search.vectorizers is None:
+                            existing_index.vector_search.vectorizers = []
+                        existing_index.vector_search.vectorizers.append(image_vectorizer)
+                        await search_index_client.create_or_update_index(existing_index)
+                    elif existing_images_field.fields is not None:
+                        # Migrate existing images field: add any missing subfields
+                        existing_subfield_names = {sf.name for sf in existing_images_field.fields}
+                        missing_subfields = [
+                            sf for sf in images_field.fields if sf.name not in existing_subfield_names
+                        ]
+                        if missing_subfields:
+                            for sf in missing_subfields:
+                                logger.info("Adding missing subfield '%s' to images complex field", sf.name)
+                                existing_images_field.fields.append(sf)
+                            await search_index_client.create_or_update_index(existing_index)
 
                 if existing_index.semantic_search:
                     if not existing_index.semantic_search.default_configuration_name:
