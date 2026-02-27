@@ -25,6 +25,45 @@ else:
     logger.warning("APPLICATIONINSIGHTS_CONNECTION_STRING not set — events will not be sent")
 
 
+def emit_operation_started(
+    *,
+    operation: str,
+    details: str = "",
+):
+    """Emit an OperationStarted event (generate or evaluate)."""
+    props = {
+        "custom_dimensions": {
+            "operation": operation,
+            "details": details,
+            "status": "started",
+        }
+    }
+    _event_logger.info("OperationStarted", extra=props)
+    logger.info("Emitted OperationStarted: %s", operation)
+
+
+def emit_operation_completed(
+    *,
+    operation: str,
+    status: str = "success",
+    duration_seconds: float = 0,
+    details: str = "",
+    error: str = "",
+):
+    """Emit an OperationCompleted event (generate or evaluate)."""
+    props = {
+        "custom_dimensions": {
+            "operation": operation,
+            "status": status,
+            "duration_seconds": round(duration_seconds, 1),
+            "details": details,
+            "error": error[:1000] if error else "",
+        }
+    }
+    _event_logger.info("OperationCompleted", extra=props)
+    logger.info("Emitted OperationCompleted: %s status=%s duration=%.1fs", operation, status, duration_seconds)
+
+
 def emit_eval_run_completed(
     *,
     run_id: str,
@@ -63,6 +102,10 @@ def emit_eval_question_result(
     *,
     run_id: str,
     question: str,
+    truth: str = "",
+    answer: str = "",
+    context: str = "",
+    source: str = "generated",
     groundedness: float,
     relevance: float,
     citations_matched: float,
@@ -75,6 +118,10 @@ def emit_eval_question_result(
         "custom_dimensions": {
             "run_id": run_id,
             "question": question[:500],
+            "truth": truth[:2000],
+            "answer": answer[:2000],
+            "context": context[:2000],
+            "source": source,
             "groundedness": groundedness,
             "relevance": relevance,
             "citations_matched": citations_matched,

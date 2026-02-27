@@ -247,6 +247,21 @@ async def run_evaluation(
     gt_data = await gt_blob.download_blob()
     gt_text = (await gt_data.readall()).decode("utf-8")
     qa_pairs = [json.loads(line) for line in gt_text.strip().split("\n") if line.strip()]
+    for qa in qa_pairs:
+        qa.setdefault("source", "generated")
+
+    # Merge manually curated questions if the file exists
+    try:
+        manual_blob = container_client.get_blob_client("ground-truth/manual_questions.jsonl")
+        manual_data = await manual_blob.download_blob()
+        manual_text = (await manual_data.readall()).decode("utf-8")
+        manual_pairs = [json.loads(line) for line in manual_text.strip().split("\n") if line.strip()]
+        for qa in manual_pairs:
+            qa.setdefault("source", "manual")
+        qa_pairs.extend(manual_pairs)
+        logger.info("Merged %d manual questions with %d generated questions", len(manual_pairs), len(qa_pairs) - len(manual_pairs))
+    except Exception:
+        logger.info("No manual_questions.jsonl found, using generated questions only")
 
     if num_questions and num_questions < len(qa_pairs):
         qa_pairs = qa_pairs[:num_questions]
@@ -297,6 +312,7 @@ async def run_evaluation(
             result = {
                 "question": question,
                 "truth": truth,
+                "source": qa.get("source", "generated"),
                 "answer": answer,
                 "context": context_texts[:3],
                 "groundedness": gpt_scores.get("groundedness", -1),
@@ -312,6 +328,10 @@ async def run_evaluation(
             emit_eval_question_result(
                 run_id=run_id,
                 question=question,
+                truth=truth,
+                answer=answer,
+                context="\n---\n".join(context_texts[:3]),
+                source=qa.get("source", "generated"),
                 groundedness=result["groundedness"],
                 relevance=result["relevance"],
                 citations_matched=citations_matched,
