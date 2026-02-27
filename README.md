@@ -62,10 +62,15 @@ The repo includes sample data so it's ready to try end to end. In this sample ap
 - Renders citations and thought process for each answer
 - Includes settings directly in the UI to tweak the behavior and experiment with options
 - Integrates Azure AI Search for indexing and retrieval of documents, with support for [many document formats](/docs/data_ingestion.md#supported-document-formats) as well as [cloud data ingestion](/docs/data_ingestion.md#cloud-data-ingestion)
+- **Hybrid PDF parsing** — digital pages processed locally, only scanned pages sent to Azure Document Intelligence (reduces cost up to 10x)
+- **Local PPTX/DOCX parsing** — presentations and Word documents parsed locally using python-pptx/python-docx, no Azure Document Intelligence required
+- **Image context enrichment** — extracted images carry metadata (slide title, page text, alt text, document summary) for better search relevance
+- **Per-document summaries** — optional LLM-generated summaries stamped on all images for improved retrieval
 - Optional usage of [multimodal models](/docs/multimodal.md) to reason over image-heavy documents
 - Optional addition of [speech input/output](/docs/deploy_features.md#enabling-speech-inputoutput) for accessibility
 - Optional automation of [user login and data access](/docs/login_and_acl.md) via Microsoft Entra
 - Performance tracing and monitoring with Application Insights
+- **Frontend built with Tailwind CSS v4 + shadcn/ui** — migrated from Fluent UI for a modern, customizable design system
 
 ### Architecture Diagram
 
@@ -266,6 +271,7 @@ You can find extensive documentation in the [docs](docs/README.md) folder:
 - [App architecture](docs/architecture.md)
 - [HTTP Protocol](docs/http_protocol.md)
 - [Data ingestion](docs/data_ingestion.md)
+- [Hybrid PDF parser & image context enrichment](docs/hybrid_parser.md)
 - [Evaluation](docs/evaluation.md)
 - [Safety evaluation](docs/safety_evaluation.md)
 - [Monitoring with Application Insights](docs/monitoring.md)

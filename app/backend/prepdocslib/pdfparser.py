@@ -1,6 +1,8 @@
+import hashlib
 import html
 import io
 import logging
+import os
 import uuid
 from collections.abc import AsyncGenerator
 from enum import Enum
@@ -25,6 +27,14 @@ from .page import ImageOnPage, Page
 from .parser import Parser
 
 logger = logging.getLogger("scripts")
+
+# HybridPdfParser configurable thresholds
+HYBRID_MIN_IMAGE_BYTES = 2048  # Skip images smaller than this
+HYBRID_MIN_IMAGE_DIMENSION = 50  # Skip images narrower/shorter than this (px)
+HYBRID_SKIP_FORMATS = {"emf", "wmf"}
+HYBRID_OCR_MIN_TEXT_CHARS = 50  # Fewer chars than this with no dominant image → OCR
+HYBRID_SCAN_COVERAGE_RATIO = 0.5  # Image covering more than this fraction of page → scan
+HYBRID_CONTEXT_TEXT_MAX_CHARS = 2000  # Max chars for context_text field
 
 
 class LocalPdfParser(Parser):
@@ -109,6 +119,85 @@ class LocalDocxParser(Parser):
         if text_parts:
             page_text = "\n".join(text_parts)
             yield Page(page_num=page_num, offset=offset, text=page_text)
+
+
+class LocalPptxParser(Parser):
+    """
+    Concrete parser backed by python-pptx that can parse PPTX files into pages.
+    Each slide becomes one Page. Extracts visible text, tables, and speaker notes.
+    Images are extracted using the officeimageextractor module.
+    """
+
+    async def parse(self, content: IO) -> AsyncGenerator[Page, None]:
+        from pptx import Presentation
+
+        doc_name = getattr(content, "name", "unknown")
+        logger.info("Extracting text from '%s' using local PPTX parser (python-pptx)", doc_name)
+
+        try:
+            content.seek(0)
+        except (OSError, io.UnsupportedOperation):
+            pass
+        content_bytes = content.read()
+        prs = Presentation(io.BytesIO(content_bytes))
+
+        # Phase 1: extract text into Pages
+        pages: list[Page] = []
+        offset = 0
+        for slide_idx, slide in enumerate(prs.slides):
+            text_parts: list[str] = []
+
+            # Slide title as markdown heading
+            if slide.shapes.title is not None:
+                title_text = slide.shapes.title.text.strip()
+                if title_text:
+                    text_parts.append(f"# {title_text}")
+
+            # Other shapes: text frames and tables
+            for shape in slide.shapes:
+                if shape == slide.shapes.title:
+                    continue
+                if shape.has_table:
+                    for row in shape.table.rows:
+                        cells = [cell.text.strip() for cell in row.cells]
+                        text_parts.append(" | ".join(cells))
+                elif shape.has_text_frame:
+                    shape_text = shape.text_frame.text.strip()
+                    if shape_text:
+                        text_parts.append(shape_text)
+
+            # Speaker notes
+            if slide.has_notes_slide:
+                notes_text = slide.notes_slide.notes_text_frame.text.strip()
+                if notes_text:
+                    text_parts.append(f"\n---\nNotes: {notes_text}")
+
+            page_text = "\n".join(p for p in text_parts if p)
+            page = Page(page_num=slide_idx, offset=offset, text=page_text)
+            pages.append(page)
+            offset += len(page_text)
+
+        # Phase 2: extract and merge images
+        # Note: appending image placeholders makes page text longer than the
+        # offsets computed in Phase 1.  This matches the behaviour of
+        # extract_and_merge_office_images() in officeimageextractor.py and is
+        # harmless because downstream code (splitter, indexer) does not rely
+        # on offsets being exact after image merge.
+        from .officeimageextractor import _extract_pptx_images
+
+        images = _extract_pptx_images(content_bytes, doc_name)
+        if images:
+            logger.info("Extracted %d images from '%s'", len(images), doc_name)
+            page_map = {p.page_num: p for p in pages}
+            for image in images:
+                target = page_map.get(image.page_num, pages[-1] if pages else None)
+                if target is not None:
+                    target.text = target.text.rstrip() + "\n" + image.placeholder
+                    target.images.append(image)
+
+        # Phase 3: yield pages
+        for page in pages:
+            yield page
 
 
 class DocumentAnalysisParser(Parser):
@@ -351,3 +440,242 @@ class DocumentAnalysisParser(Parser):
         bytes_io = io.BytesIO()
         img.save(bytes_io, format="PNG")
         return bytes_io.getvalue(), bbox_pixels
+
+
+class HybridPdfParser(Parser):
+    """Hybrid PDF parser that triages pages as digital or scanned.
+
+    Digital pages are processed locally with PyMuPDF (text extraction + image
+    extraction with filtering).  Pages that appear to be scanned are collected
+    into a sub-PDF and sent to Azure Document Intelligence, with the results
+    mapped back to the original page indices.
+    """
+
+    # Map PyMuPDF image extension strings to MIME types
+    _EXT_TO_MIME: dict[str, str] = {
+        "png": "image/png",
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "gif": "image/gif",
+        "bmp": "image/bmp",
+        "tiff": "image/tiff",
+        "tif": "image/tiff",
+    }
+
+    def __init__(self, di_parser: Optional["DocumentAnalysisParser"] = None) -> None:
+        self.di_parser = di_parser
+
+    # ------------------------------------------------------------------
+    # Page triage
+    # ------------------------------------------------------------------
+
+    def _page_needs_ocr(self, page: pymupdf.Page) -> bool:
+        """Return True if *page* appears to be scanned rather than born-digital.
+
+        Heuristics (evaluated in order):
+        1. If the page has very little extractable text *and* a single image
+           that covers a large fraction of the page, treat it as scanned.
+        2. If there is almost no text at all (below ``HYBRID_OCR_MIN_TEXT_CHARS``)
+           the page is likely scanned regardless of image layout.
+        """
+        text = page.get_text()
+        text_len = len(text.strip())
+        page_rect = page.rect
+        page_area = page_rect.width * page_rect.height
+
+        if page_area == 0:
+            return text_len < HYBRID_OCR_MIN_TEXT_CHARS
+
+        # Gather image xrefs and their rects in page-point space
+        images = page.get_images(full=True)
+        image_rects: list[pymupdf.Rect] = []
+        for img_info in images:
+            xref = img_info[0]
+            try:
+                rects = page.get_image_rects(xref)
+                for r in rects:
+                    if not r.is_empty:
+                        image_rects.append(r)
+            except Exception:
+                logger.debug("Failed to get image rects for xref %s on page %s", xref, page.number, exc_info=True)
+
+        # Heuristic 1: dominant full-page image with little text
+        if text_len < HYBRID_OCR_MIN_TEXT_CHARS and image_rects:
+            for r in image_rects:
+                img_area = r.width * r.height
+                if img_area / page_area > HYBRID_SCAN_COVERAGE_RATIO:
+                    return True
+
+        # Heuristic 2: almost no text at all
+        if text_len < HYBRID_OCR_MIN_TEXT_CHARS:
+            return True
+
+        return False
+
+    # ------------------------------------------------------------------
+    # Image filtering helpers (mirrors officeimageextractor logic)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _should_skip_image(image_bytes: bytes, ext: str) -> bool:
+        """Return True if the extracted image should be filtered out."""
+        if ext.lower() in HYBRID_SKIP_FORMATS:
+            return True
+        if len(image_bytes) < HYBRID_MIN_IMAGE_BYTES:
+            return True
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                w, h = img.size
+                if w < HYBRID_MIN_IMAGE_DIMENSION or h < HYBRID_MIN_IMAGE_DIMENSION:
+                    return True
+        except Exception:
+            logger.debug("Could not open image to check dimensions, skipping it", exc_info=True)
+            return True
+        return False
+
+    # ------------------------------------------------------------------
+    # Main parse entry-point
+    # ------------------------------------------------------------------
+
+    async def parse(self, content: IO) -> AsyncGenerator[Page, None]:
+        doc_name = getattr(content, "name", "unknown")
+        logger.info("Extracting text from '%s' using HybridPdfParser", doc_name)
+
+        try:
+            content.seek(0)
+        except (OSError, io.UnsupportedOperation):
+            pass
+        content_bytes = content.read()
+        doc = pymupdf.open(stream=io.BytesIO(content_bytes))
+
+        try:
+            # Phase 1: triage every page
+            digital_indices: list[int] = []
+            scanned_indices: list[int] = []
+            for idx in range(doc.page_count):
+                page = doc.load_page(idx)
+                if self._page_needs_ocr(page):
+                    scanned_indices.append(idx)
+                else:
+                    digital_indices.append(idx)
+
+            logger.info(
+                "Document '%s': %d pages local, %d pages DI",
+                doc_name,
+                len(digital_indices),
+                len(scanned_indices),
+            )
+
+            # Phase 2a: process digital pages locally
+            offset = 0
+            # We'll collect all pages (digital + DI) and yield in page order
+            all_pages: dict[int, Page] = {}
+
+            seen_hashes: set[str] = set()
+            img_counter = 0
+
+            for idx in digital_indices:
+                mupdf_page = doc.load_page(idx)
+                page_text = mupdf_page.get_text()
+
+                # Extract images
+                page_images: list[ImageOnPage] = []
+                raw_images = mupdf_page.get_images(full=True)
+                for img_info in raw_images:
+                    xref = img_info[0]
+                    try:
+                        extracted = doc.extract_image(xref)
+                    except Exception:
+                        logger.debug("Failed to extract image xref %s from page %d", xref, idx, exc_info=True)
+                        continue
+                    if not extracted or "image" not in extracted:
+                        continue
+
+                    image_bytes = extracted["image"]
+                    ext = extracted.get("ext", "png")
+
+                    if self._should_skip_image(image_bytes, ext):
+                        continue
+
+                    img_hash = hashlib.sha256(image_bytes).hexdigest()
+                    if img_hash in seen_hashes:
+                        continue
+                    seen_hashes.add(img_hash)
+
+                    img_counter += 1
+                    figure_id = f"img_{img_counter}"
+                    mime_type = self._EXT_TO_MIME.get(ext.lower(), "image/png")
+                    base_name = os.path.splitext(os.path.basename(doc_name))[0]
+                    img_filename = f"{base_name}_{figure_id}.{ext}"
+                    placeholder = f'<figure id="{figure_id}"></figure>'
+
+                    page_images.append(
+                        ImageOnPage(
+                            bytes=image_bytes,
+                            page_num=idx,
+                            figure_id=figure_id,
+                            bbox=(0, 0, 0, 0),
+                            filename=img_filename,
+                            title="",
+                            placeholder=placeholder,
+                            mime_type=mime_type,
+                            context_text=page_text[:HYBRID_CONTEXT_TEXT_MAX_CHARS],
+                        )
+                    )
+
+                # Append image placeholders to page text
+                for img in page_images:
+                    page_text = page_text.rstrip() + "\n" + img.placeholder
+
+                all_pages[idx] = Page(
+                    page_num=idx,
+                    offset=0,  # will be fixed in final pass
+                    text=page_text,
+                    images=page_images,
+                )
+
+            # Phase 2b: send scanned pages to DI (if any)
+            if scanned_indices and self.di_parser is not None:
+                # Build a sub-PDF containing only scanned pages
+                new_doc = pymupdf.open()
+                try:
+                    for idx in scanned_indices:
+                        new_doc.insert_pdf(doc, from_page=idx, to_page=idx)
+                    sub_pdf_bytes = new_doc.tobytes()
+                finally:
+                    new_doc.close()
+
+                sub_pdf_stream = io.BytesIO(sub_pdf_bytes)
+                sub_pdf_stream.name = doc_name  # preserve original name for logging
+
+                # Map sub-PDF page indices back to original page indices
+                page_index_map: dict[int, int] = dict(enumerate(scanned_indices))
+
+                async for di_page in self.di_parser.parse(sub_pdf_stream):
+                    orig_idx = page_index_map.get(di_page.page_num, di_page.page_num)
+                    all_pages[orig_idx] = Page(
+                        page_num=orig_idx,
+                        offset=0,  # will be fixed in final pass
+                        text=di_page.text,
+                        images=di_page.images,
+                        tables=di_page.tables,
+                    )
+            elif scanned_indices:
+                # No DI parser available — yield empty pages so document page count is preserved
+                logger.warning(
+                    "Document '%s' has %d scanned pages but no DI parser configured; these pages will have no text",
+                    doc_name,
+                    len(scanned_indices),
+                )
+                for idx in scanned_indices:
+                    all_pages[idx] = Page(page_num=idx, offset=0, text="")
+
+            # Phase 3: yield pages in original order with correct offsets
+            for idx in range(doc.page_count):
+                if idx in all_pages:
+                    page = all_pages[idx]
+                    page.offset = offset
+                    yield page
+                    offset += len(page.text)
+        finally:
+            doc.close()

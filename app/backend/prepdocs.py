@@ -64,6 +64,7 @@ def setup_file_processors(
     document_intelligence_service: Optional[str],
     document_intelligence_key: Optional[str] = None,
     local_pdf_parser: bool = False,
+    hybrid_pdf_parser: bool = False,
     local_html_parser: bool = False,
     local_docx_parser: bool = False,
     use_content_understanding: bool = False,
@@ -83,6 +84,7 @@ def setup_file_processors(
         document_intelligence_service=document_intelligence_service,
         document_intelligence_key=document_intelligence_key,
         use_local_pdf_parser=local_pdf_parser,
+        use_hybrid_pdf_parser=hybrid_pdf_parser,
         use_local_html_parser=local_html_parser,
         use_local_docx_parser=local_docx_parser,
         process_figures=use_multimodal,
@@ -304,6 +306,7 @@ if __name__ == "__main__":  # pragma: no cover
             document_intelligence_service=os.getenv("AZURE_DOCUMENTINTELLIGENCE_SERVICE"),
             document_intelligence_key=clean_key_if_exists(args.documentintelligencekey),
             local_pdf_parser=os.getenv("USE_LOCAL_PDF_PARSER") == "true",
+            hybrid_pdf_parser=os.getenv("USE_HYBRID_PDF_PARSER") == "true",
             local_html_parser=os.getenv("USE_LOCAL_HTML_PARSER") == "true",
             use_content_understanding=use_content_understanding,
             use_multimodal=use_multimodal,
@@ -318,6 +321,9 @@ if __name__ == "__main__":  # pragma: no cover
             vision_endpoint=os.getenv("AZURE_VISION_ENDPOINT"),
             use_multimodal=use_multimodal,
         )
+
+        summary_client = openai_client if os.getenv("USE_DOCUMENT_SUMMARY") == "true" else None
+        summary_model = os.getenv("AZURE_OPENAI_CHATGPT_MODEL") if summary_client else None
 
         ingestion_strategy = FileStrategy(
             search_info=search_info,
@@ -336,6 +342,8 @@ if __name__ == "__main__":  # pragma: no cover
             enforce_access_control=enforce_access_control,
             use_web_source=use_web_source,
             use_sharepoint_source=use_sharepoint_source,
+            summary_client=summary_client,
+            summary_model=summary_model,
         )
 
     try:

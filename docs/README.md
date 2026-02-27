@@ -21,6 +21,7 @@ These are advanced topics that are not necessary for a basic deployment.
 - [App architecture](architecture.md)
 - [HTTP Protocol](http_protocol.md)
 - [Data ingestion](data_ingestion.md)
+- [Hybrid PDF parser & image context](hybrid_parser.md)
 - [Evaluation](docs/evaluation.md)
 - [Safety evaluation](safety_evaluation.md)
 - [Monitoring with Application Insights](monitoring.md)
