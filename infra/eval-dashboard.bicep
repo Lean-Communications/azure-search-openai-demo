@@ -75,6 +75,7 @@ customEvents
 | where name == "EvalQuestionResult"
 | where tostring(customDimensions.run_id) == latest_run
 | extend
+    Source = tostring(customDimensions.source),
     Question = tostring(customDimensions.question),
     Groundedness = todouble(customDimensions.groundedness),
     Relevance = todouble(customDimensions.relevance),
@@ -82,7 +83,7 @@ customEvents
     AnyCitation = tobool(customDimensions.any_citation),
     LatencySec = round(todouble(customDimensions.latency), 1),
     AnswerLength = toint(customDimensions.answer_length)
-| project Question, Groundedness, Relevance, CitationsMatched, AnyCitation, LatencySec, AnswerLength
+| project Source, Question, Groundedness, Relevance, CitationsMatched, AnyCitation, LatencySec, AnswerLength
 | order by Groundedness asc
 '''
 
@@ -97,14 +98,45 @@ customEvents
 | where name == "EvalQuestionResult"
 | where tostring(customDimensions.run_id) == latest_run
 | extend
+    Source = tostring(customDimensions.source),
     Question = tostring(customDimensions.question),
     Groundedness = todouble(customDimensions.groundedness),
     Relevance = todouble(customDimensions.relevance),
     Answer = tostring(customDimensions.answer),
     ExpectedAnswer = tostring(customDimensions.truth),
     RetrievedContext = tostring(customDimensions.context)
-| project Question, Groundedness, Relevance, Answer, ExpectedAnswer, RetrievedContext
+| project Source, Question, Groundedness, Relevance, Answer, ExpectedAnswer, RetrievedContext
 | order by Groundedness asc
+'''
+
+var sourceComparisonQuery = '''
+let latest_run = toscalar(
+  customEvents
+  | where name == "EvalRunCompleted"
+  | top 1 by timestamp desc
+  | project tostring(customDimensions.run_id)
+);
+customEvents
+| where name == "EvalQuestionResult"
+| where tostring(customDimensions.run_id) == latest_run
+| extend
+    source = tostring(customDimensions.source),
+    groundedness = todouble(customDimensions.groundedness),
+    relevance = todouble(customDimensions.relevance),
+    citations_matched = todouble(customDimensions.citations_matched),
+    any_citation = tobool(customDimensions.any_citation),
+    latency = todouble(customDimensions.latency)
+| summarize
+    Questions = count(),
+    Groundedness_Avg = round(avg(groundedness), 2),
+    Groundedness_Pass = round(countif(groundedness >= 4) * 100.0 / count(), 1),
+    Relevance_Avg = round(avg(relevance), 2),
+    Relevance_Pass = round(countif(relevance >= 4) * 100.0 / count(), 1),
+    Citations_Matched_Avg = round(avg(citations_matched) * 100, 1),
+    Any_Citation_Pct = round(countif(any_citation) * 100.0 / count(), 1),
+    Latency_Avg = round(avg(latency), 2)
+  by Source = source
+| order by Source asc
 '''
 
 var operationHistoryQuery = '''
@@ -243,6 +275,25 @@ resource evalWorkbook 'Microsoft.Insights/workbooks@2023-06-01' = {
             }
           }
           name: 'trend-latency'
+        }
+        {
+          type: 1
+          content: { json: '## Manual vs Generated Questions\\nCompare metrics between manually curated and auto-generated questions.' }
+          name: 'header-source-comparison'
+        }
+        {
+          type: 3
+          content: {
+            version: 'KqlItem/1.0'
+            query: sourceComparisonQuery
+            size: 0
+            title: 'Metrics by Question Source (Latest Run)'
+            queryType: 0
+            resourceType: 'microsoft.insights/components'
+            crossComponentResources: [ appInsightsId ]
+            visualization: 'table'
+          }
+          name: 'source-comparison-table'
         }
         {
           type: 1
