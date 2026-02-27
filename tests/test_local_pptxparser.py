@@ -178,3 +178,37 @@ class TestLocalPptxParserText:
 
         assert len(pages) == 1
         assert pages[0].page_num == 0
+
+
+class TestLocalPptxParserImages:
+    def test_images_attached_to_pages(self):
+        """Slides with pictures have ImageOnPage objects attached."""
+        pptx_bytes = _build_pptx([{"title": "Img Slide", "body": "Text", "include_picture": True}])
+        pages = _parse_pptx_sync(pptx_bytes)
+
+        assert len(pages) == 1
+        assert len(pages[0].images) >= 1
+        img = pages[0].images[0]
+        assert img.page_num == 0
+        assert img.context_title == "Img Slide"
+        assert len(img.bytes) > 0
+
+    def test_image_placeholder_in_text(self):
+        """Image placeholders are appended to the page text."""
+        pptx_bytes = _build_pptx([{"title": "Pic", "body": "Words", "include_picture": True}])
+        pages = _parse_pptx_sync(pptx_bytes)
+
+        assert len(pages) == 1
+        assert "<figure" in pages[0].text
+
+    def test_slide_without_image_has_no_images(self):
+        """Slides without pictures have empty images list."""
+        pptx_bytes = _build_pptx([
+            {"title": "No Pic", "body": "Just text"},
+            {"title": "Has Pic", "body": "With image", "include_picture": True},
+        ])
+        pages = _parse_pptx_sync(pptx_bytes)
+
+        assert len(pages) == 2
+        assert len(pages[0].images) == 0
+        assert len(pages[1].images) >= 1
