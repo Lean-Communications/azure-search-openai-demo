@@ -1,6 +1,7 @@
 import { useMsal } from "@azure/msal-react";
 import { getToken, useLogin } from "../../authConfig";
-import { Panel, PanelType, Spinner } from "@fluentui/react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HistoryData, HistoryItem } from "../HistoryItem";
 import { Answers, HistoryProviderOptions } from "../HistoryProviders/IProvider";
@@ -68,35 +69,40 @@ export const HistoryPanel = ({
 
     const { t } = useTranslation();
 
+    const handleOpenChange = (open: boolean) => {
+        if (!open) {
+            onClose();
+            setHistory([]);
+            setHasMoreHistory(true);
+            historyManager.resetContinuationToken();
+        }
+    };
+
     return (
-        <Panel
-            type={PanelType.customNear}
-            style={{ padding: "0px" }}
-            headerText={t("history.chatHistory")}
-            customWidth="300px"
-            isBlocking={false}
-            isOpen={isOpen}
-            onDismiss={() => onClose()}
-            onDismissed={() => {
-                setHistory([]);
-                setHasMoreHistory(true);
-                historyManager.resetContinuationToken();
-            }}
-        >
-            <div>
-                {Object.entries(groupedHistory).map(([group, items]) => (
-                    <div key={group} className={styles.group}>
-                        <p className={styles.groupLabel}>{t(group)}</p>
-                        {items.map(item => (
-                            <HistoryItem key={item.id} item={item} onSelect={handleSelect} onDelete={handleDelete} />
-                        ))}
-                    </div>
-                ))}
-                {isLoading && <Spinner style={{ marginTop: "10px" }} />}
-                {history.length === 0 && !isLoading && <p>{t("history.noHistory")}</p>}
-                {hasMoreHistory && !isLoading && <InfiniteLoadingButton func={loadMoreHistory} />}
-            </div>
-        </Panel>
+        <Sheet open={isOpen} onOpenChange={handleOpenChange}>
+            <SheetContent side="left" className="w-[300px] p-0 overflow-y-auto">
+                <SheetHeader className="p-4">
+                    <SheetTitle>{t("history.chatHistory")}</SheetTitle>
+                </SheetHeader>
+                <div className="px-4 pb-4">
+                    {Object.entries(groupedHistory).map(([group, items]) => (
+                        <div key={group} className={styles.group}>
+                            <p className={styles.groupLabel}>{t(group)}</p>
+                            {items.map(item => (
+                                <HistoryItem key={item.id} item={item} onSelect={handleSelect} onDelete={handleDelete} />
+                            ))}
+                        </div>
+                    ))}
+                    {isLoading && (
+                        <div className="flex justify-center mt-2.5">
+                            <Loader2 className="h-6 w-6 animate-spin" />
+                        </div>
+                    )}
+                    {history.length === 0 && !isLoading && <p>{t("history.noHistory")}</p>}
+                    {hasMoreHistory && !isLoading && <InfiniteLoadingButton func={loadMoreHistory} />}
+                </div>
+            </SheetContent>
+        </Sheet>
     );
 };
 

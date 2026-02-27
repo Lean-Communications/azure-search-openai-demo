@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { IconButton } from "@fluentui/react";
+import { Volume2, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { getSpeechApi, SpeechConfig } from "../../api";
 
 interface Props {
@@ -60,22 +61,23 @@ export const SpeechOutputAzure = ({ answer, speechConfig, index, isStreaming }: 
         });
     };
 
-    const color = localPlayingState ? "red" : "black";
+    const color = localPlayingState ? "text-red-500" : "text-black";
 
-    // We always preload the Sync icon in hidden mode so that there's no visual glitch when icon changes
     return isLoading ? (
-        <IconButton style={{ color: color }} iconProps={{ iconName: "Sync" }} title="Loading speech" ariaLabel="Loading speech" disabled={true} />
+        <Button variant="ghost" size="icon" title="Loading speech" aria-label="Loading speech" disabled>
+            <Loader2 className={`h-5 w-5 animate-spin ${color}`} />
+        </Button>
     ) : (
-        <>
-            <IconButton iconProps={{ iconName: "Sync" }} ariaHidden={true} disabled={true} style={{ display: "none" }} />
-            <IconButton
-                style={{ color: color }}
-                iconProps={{ iconName: "Volume3" }}
-                title={t("tooltips.speakAnswer")}
-                ariaLabel={t("tooltips.speakAnswer")}
-                onClick={() => startOrStopSpeech(answer)}
-                disabled={isStreaming}
-            />
-        </>
+        <Button
+            variant="ghost"
+            size="icon"
+            className={color}
+            title={t("tooltips.speakAnswer")}
+            aria-label={t("tooltips.speakAnswer")}
+            onClick={() => startOrStopSpeech(answer)}
+            disabled={isStreaming}
+        >
+            <Volume2 className="h-5 w-5" />
+        </Button>
     );
 };

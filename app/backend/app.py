@@ -128,6 +128,15 @@ async def favicon():
     return await bp.send_static_file("favicon.ico")
 
 
+@bp.route("/<path:filename>")
+async def static_root_files(filename):
+    static_dir = Path(__file__).resolve().parent / "static"
+    file_path = static_dir / filename
+    if file_path.is_file() and static_dir in file_path.resolve().parents:
+        return await bp.send_static_file(filename)
+    return await bp.send_static_file("index.html")
+
+
 @bp.route("/assets/<path:path>")
 async def assets(path):
     return await send_from_directory(Path(__file__).resolve().parent / "static" / "assets", path)

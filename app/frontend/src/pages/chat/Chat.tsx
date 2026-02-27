@@ -1,10 +1,10 @@
 import { useRef, useState, useEffect, useContext } from "react";
 import { useTranslation } from "react-i18next";
 import { Helmet } from "react-helmet-async";
-import { Panel, DefaultButton } from "@fluentui/react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import readNDJSONStream from "ndjson-readablestream";
 
-import appLogo from "../../assets/applogo.svg";
 import styles from "./Chat.module.css";
 
 import { chatApi, configApi, RetrievalMode, ChatAppResponse, ChatAppResponseOrError, ChatAppRequest, ResponseMessage, SpeechConfig } from "../../api";
@@ -542,13 +542,9 @@ const Chat = () => {
                 <div className={styles.chatContainer}>
                     {!lastQuestionRef.current ? (
                         <div className={styles.chatEmptyState}>
-                            <img src={appLogo} alt="App logo" width="120" height="120" />
-
-                            <h1 className={styles.chatEmptyStateTitle}>{t("chatEmptyStateTitle")}</h1>
+                            <img src="/lean.png" alt="Lean Communications" className={styles.chatEmptyStateLogo} />
                             <h2 className={styles.chatEmptyStateSubtitle}>{t("chatEmptyStateSubtitle")}</h2>
                             {showLanguagePicker && <LanguagePicker onLanguageChange={newLang => i18n.changeLanguage(newLang)} />}
-
-                            <ExampleList onExampleClicked={onExampleClicked} useMultimodalAnswering={showMultimodalOptions} />
                         </div>
                     ) : (
                         <div className={styles.chatMessageStream}>
@@ -630,6 +626,7 @@ const Chat = () => {
                             onStop={onStopClick}
                             initQuestion={restoredQuestion}
                         />
+                        {!lastQuestionRef.current && <ExampleList onExampleClicked={onExampleClicked} useMultimodalAnswering={showMultimodalOptions} />}
                     </div>
                 </div>
 
@@ -659,56 +656,58 @@ const Chat = () => {
                     />
                 )}
 
-                <Panel
-                    headerText={t("labels.headerText")}
-                    isOpen={isConfigPanelOpen}
-                    isBlocking={false}
-                    onDismiss={() => setIsConfigPanelOpen(false)}
-                    closeButtonAriaLabel={t("labels.closeButton")}
-                    onRenderFooterContent={() => <DefaultButton onClick={() => setIsConfigPanelOpen(false)}>{t("labels.closeButton")}</DefaultButton>}
-                    isFooterAtBottom={true}
-                >
-                    <Settings
-                        promptTemplate={promptTemplate}
-                        temperature={temperature}
-                        retrieveCount={retrieveCount}
-                        agenticReasoningEffort={agenticReasoningEffort}
-                        seed={seed}
-                        minimumSearchScore={minimumSearchScore}
-                        minimumRerankerScore={minimumRerankerScore}
-                        useSemanticRanker={useSemanticRanker}
-                        useSemanticCaptions={useSemanticCaptions}
-                        useQueryRewriting={useQueryRewriting}
-                        reasoningEffort={reasoningEffort}
-                        excludeCategory={excludeCategory}
-                        includeCategory={includeCategory}
-                        retrievalMode={retrievalMode}
-                        showMultimodalOptions={showMultimodalOptions}
-                        sendTextSources={sendTextSources}
-                        sendImageSources={sendImageSources}
-                        searchTextEmbeddings={searchTextEmbeddings}
-                        searchImageEmbeddings={searchImageEmbeddings}
-                        showSemanticRankerOption={showSemanticRankerOption}
-                        showQueryRewritingOption={showQueryRewritingOption}
-                        showReasoningEffortOption={showReasoningEffortOption}
-                        showVectorOption={showVectorOption}
-                        useLogin={!!useLogin}
-                        loggedIn={loggedIn}
-                        requireAccessControl={requireAccessControl}
-                        shouldStream={shouldStream}
-                        streamingEnabled={streamingEnabled}
-                        useSuggestFollowupQuestions={useSuggestFollowupQuestions}
-                        showAgenticRetrievalOption={showAgenticRetrievalOption}
-                        useAgenticKnowledgeBase={useAgenticKnowledgeBase}
-                        useWebSource={webSourceEnabled}
-                        showWebSourceOption={webSourceSupported}
-                        useSharePointSource={sharePointSourceEnabled}
-                        showSharePointSourceOption={sharePointSourceSupported}
-                        hideMinimalRetrievalReasoningOption={hideMinimalRetrievalReasoningOption}
-                        onChange={handleSettingsChange}
-                    />
-                    {useLogin && <TokenClaimsDisplay />}
-                </Panel>
+                <Sheet open={isConfigPanelOpen} onOpenChange={setIsConfigPanelOpen}>
+                    <SheetContent className="overflow-y-auto">
+                        <SheetHeader>
+                            <SheetTitle>{t("labels.headerText")}</SheetTitle>
+                        </SheetHeader>
+                        <Settings
+                            promptTemplate={promptTemplate}
+                            temperature={temperature}
+                            retrieveCount={retrieveCount}
+                            agenticReasoningEffort={agenticReasoningEffort}
+                            seed={seed}
+                            minimumSearchScore={minimumSearchScore}
+                            minimumRerankerScore={minimumRerankerScore}
+                            useSemanticRanker={useSemanticRanker}
+                            useSemanticCaptions={useSemanticCaptions}
+                            useQueryRewriting={useQueryRewriting}
+                            reasoningEffort={reasoningEffort}
+                            excludeCategory={excludeCategory}
+                            includeCategory={includeCategory}
+                            retrievalMode={retrievalMode}
+                            showMultimodalOptions={showMultimodalOptions}
+                            sendTextSources={sendTextSources}
+                            sendImageSources={sendImageSources}
+                            searchTextEmbeddings={searchTextEmbeddings}
+                            searchImageEmbeddings={searchImageEmbeddings}
+                            showSemanticRankerOption={showSemanticRankerOption}
+                            showQueryRewritingOption={showQueryRewritingOption}
+                            showReasoningEffortOption={showReasoningEffortOption}
+                            showVectorOption={showVectorOption}
+                            useLogin={!!useLogin}
+                            loggedIn={loggedIn}
+                            requireAccessControl={requireAccessControl}
+                            shouldStream={shouldStream}
+                            streamingEnabled={streamingEnabled}
+                            useSuggestFollowupQuestions={useSuggestFollowupQuestions}
+                            showAgenticRetrievalOption={showAgenticRetrievalOption}
+                            useAgenticKnowledgeBase={useAgenticKnowledgeBase}
+                            useWebSource={webSourceEnabled}
+                            showWebSourceOption={webSourceSupported}
+                            useSharePointSource={sharePointSourceEnabled}
+                            showSharePointSourceOption={sharePointSourceSupported}
+                            hideMinimalRetrievalReasoningOption={hideMinimalRetrievalReasoningOption}
+                            onChange={handleSettingsChange}
+                        />
+                        {useLogin && <TokenClaimsDisplay />}
+                        <div className="mt-auto pt-4">
+                            <Button variant="outline" onClick={() => setIsConfigPanelOpen(false)}>
+                                {t("labels.closeButton")}
+                            </Button>
+                        </div>
+                    </SheetContent>
+                </Sheet>
             </div>
         </div>
     );
