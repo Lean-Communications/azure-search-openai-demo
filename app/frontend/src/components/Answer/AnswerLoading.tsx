@@ -1,4 +1,3 @@
-import { Stack } from "@fluentui/react";
 import { animated, useSpring } from "@react-spring/web";
 import { useTranslation } from "react-i18next";
 
@@ -6,7 +5,7 @@ import styles from "./Answer.module.css";
 import { AnswerIcon } from "./AnswerIcon";
 
 export const AnswerLoading = () => {
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const animatedStyles = useSpring({
         from: { opacity: 0 },
         to: { opacity: 1 }
@@ -14,15 +13,19 @@ export const AnswerLoading = () => {
 
     return (
         <animated.div style={{ ...animatedStyles }}>
-            <Stack className={styles.answerContainer} verticalAlign="space-between">
-                <AnswerIcon />
-                <Stack.Item grow>
-                    <p className={styles.answerText}>
-                        {t("generatingAnswer")}
-                        <span className={styles.loadingdots} />
-                    </p>
-                </Stack.Item>
-            </Stack>
+            <div className={styles.answerContainer}>
+                <div className="flex gap-3">
+                    <div className="shrink-0 pt-0.5">
+                        <AnswerIcon />
+                    </div>
+                    <div className="flex-1">
+                        <p className={styles.answerText}>
+                            {t("generatingAnswer")}
+                            <span className={styles.loadingdots} />
+                        </p>
+                    </div>
+                </div>
+            </div>
         </animated.div>
     );
 };

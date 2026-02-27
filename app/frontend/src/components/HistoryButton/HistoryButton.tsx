@@ -1,5 +1,5 @@
-import { History24Regular } from "@fluentui/react-icons";
-import { Button } from "@fluentui/react-components";
+import { History } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
 
 import styles from "./HistoryButton.module.css";
@@ -14,7 +14,8 @@ export const HistoryButton = ({ className, disabled, onClick }: Props) => {
     const { t } = useTranslation();
     return (
         <div className={`${styles.container} ${className ?? ""}`}>
-            <Button icon={<History24Regular />} disabled={disabled} onClick={onClick}>
+            <Button variant="outline" disabled={disabled} onClick={onClick}>
+                <History className="h-5 w-5" />
                 {t("history.openChatHistory")}
             </Button>
         </div>

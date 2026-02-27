@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { Stack, IconButton } from "@fluentui/react";
 import { useTranslation } from "react-i18next";
 import DOMPurify from "dompurify";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import { Copy, Check, Lightbulb, ClipboardList } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 import styles from "./Answer.module.css";
 import { ChatAppResponse, getCitationFilePath, SpeechConfig } from "../../api";
@@ -65,122 +66,130 @@ export const Answer = ({
     };
 
     return (
-        <Stack className={`${styles.answerContainer} ${isSelected && styles.selected}`} verticalAlign="space-between">
-            <Stack.Item>
-                <Stack horizontal horizontalAlign="space-between">
+        <div className={`${styles.answerContainer} ${isSelected && styles.selected}`}>
+            <div className="flex gap-3">
+                <div className="shrink-0 pt-0.5">
                     <AnswerIcon />
-                    <div>
-                        <IconButton
-                            style={{ color: "black" }}
-                            iconProps={{ iconName: copied ? "CheckMark" : "Copy" }}
-                            title={copied ? t("tooltips.copied") : t("tooltips.copy")}
-                            ariaLabel={copied ? t("tooltips.copied") : t("tooltips.copy")}
-                            onClick={handleCopy}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className={styles.answerText}>
+                        <ReactMarkdown
+                            children={sanitizedAnswerHtml}
+                            rehypePlugins={[rehypeRaw]}
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                                img: () => null
+                            }}
                         />
-                        <IconButton
-                            style={{ color: "black" }}
-                            iconProps={{ iconName: "Lightbulb" }}
+                    </div>
+
+                    {!!parsedAnswer.citations.length && (
+                        <div>
+                            <div className="flex flex-wrap gap-1.5">
+                                <span className={styles.citationLearnMore}>{t("citationWithColon")}</span>
+                                {parsedAnswer.citations.map(citation => {
+                                    const isWeb = citation.isWeb;
+                                    const displayIndex = citation.index;
+                                    const reference = citation.reference;
+                                    if (isWeb) {
+                                        const webEntry = answer.context.data_points.external_results_metadata?.find(w => w.url === reference);
+                                        const titleOrUrl = webEntry?.title?.trim() ? webEntry.title : reference;
+                                        return (
+                                            <span key={`${reference}-${displayIndex}`} className={styles.citationEntry}>
+                                                <a className={styles.citation} title={reference} href={reference} target="_blank" rel="noopener noreferrer">
+                                                    {`${displayIndex}. ${titleOrUrl}`}
+                                                </a>
+                                            </span>
+                                        );
+                                    } else {
+                                        const path = getCitationFilePath(reference);
+                                        return (
+                                            <span key={`${reference}-${displayIndex}`} className={styles.citationEntry}>
+                                                <a
+                                                    className={styles.citation}
+                                                    title={reference}
+                                                    onClick={e => {
+                                                        e.preventDefault();
+                                                        onCitationClicked(path);
+                                                    }}
+                                                >
+                                                    {`${displayIndex}. ${reference}`}
+                                                </a>
+                                                {citation.sourceUrl && (
+                                                    <a
+                                                        className={styles.sourceLink}
+                                                        href={citation.sourceUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        title="Open original in SharePoint"
+                                                        onClick={e => e.stopPropagation()}
+                                                    >
+                                                        &#x2197;
+                                                    </a>
+                                                )}
+                                            </span>
+                                        );
+                                    }
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {!!followupQuestions?.length && showFollowupQuestions && onFollowupQuestionClicked && (
+                        <div>
+                            <div className={`flex flex-wrap gap-1.5 ${!!parsedAnswer.citations.length ? styles.followupQuestionsList : ""}`}>
+                                <span className={styles.followupQuestionLearnMore}>{t("followupQuestions")}</span>
+                                {followupQuestions.map((x, i) => {
+                                    return (
+                                        <a key={i} className={styles.followupQuestion} title={x} onClick={() => onFollowupQuestionClicked(x)}>
+                                            {`${x}`}
+                                        </a>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className={`${styles.answerActions} flex gap-0.5 mt-1`}>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title={copied ? t("tooltips.copied") : t("tooltips.copy")}
+                            aria-label={copied ? t("tooltips.copied") : t("tooltips.copy")}
+                            onClick={handleCopy}
+                        >
+                            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
                             title={t("tooltips.showThoughtProcess")}
-                            ariaLabel={t("tooltips.showThoughtProcess")}
+                            aria-label={t("tooltips.showThoughtProcess")}
                             onClick={() => onThoughtProcessClicked()}
                             disabled={!answer.context.thoughts?.length || isStreaming}
-                        />
-                        <IconButton
-                            style={{ color: "black" }}
-                            iconProps={{ iconName: "ClipboardList" }}
+                        >
+                            <Lightbulb className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
                             title={t("tooltips.showSupportingContent")}
-                            ariaLabel={t("tooltips.showSupportingContent")}
+                            aria-label={t("tooltips.showSupportingContent")}
                             onClick={() => onSupportingContentClicked()}
                             disabled={!answer.context.data_points || isStreaming}
-                        />
+                        >
+                            <ClipboardList className="h-3.5 w-3.5" />
+                        </Button>
                         {showSpeechOutputAzure && (
                             <SpeechOutputAzure answer={sanitizedAnswerHtml} index={index} speechConfig={speechConfig} isStreaming={isStreaming} />
                         )}
                         {showSpeechOutputBrowser && <SpeechOutputBrowser answer={sanitizedAnswerHtml} />}
                     </div>
-                </Stack>
-            </Stack.Item>
-
-            <Stack.Item grow>
-                <div className={styles.answerText}>
-                    <ReactMarkdown
-                        children={sanitizedAnswerHtml}
-                        rehypePlugins={[rehypeRaw]}
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                            img: () => null
-                        }}
-                    />
                 </div>
-            </Stack.Item>
-
-            {!!parsedAnswer.citations.length && (
-                <Stack.Item>
-                    <Stack horizontal wrap tokens={{ childrenGap: 5 }}>
-                        <span className={styles.citationLearnMore}>{t("citationWithColon")}</span>
-                        {parsedAnswer.citations.map(citation => {
-                            const isWeb = citation.isWeb;
-                            const displayIndex = citation.index;
-                            const reference = citation.reference;
-                            if (isWeb) {
-                                // Attempt to find the matching web data point to retrieve its title
-                                const webEntry = answer.context.data_points.external_results_metadata?.find(w => w.url === reference);
-                                const titleOrUrl = webEntry?.title?.trim() ? webEntry.title : reference;
-                                return (
-                                    <span key={`${reference}-${displayIndex}`} className={styles.citationEntry}>
-                                        <a className={styles.citation} title={reference} href={reference} target="_blank" rel="noopener noreferrer">
-                                            {`${displayIndex}. ${titleOrUrl}`}
-                                        </a>
-                                    </span>
-                                );
-                            } else {
-                                const path = getCitationFilePath(reference);
-                                return (
-                                    <span key={`${reference}-${displayIndex}`} className={styles.citationEntry}>
-                                        <a
-                                            className={styles.citation}
-                                            title={reference}
-                                            onClick={e => {
-                                                e.preventDefault();
-                                                onCitationClicked(path);
-                                            }}
-                                        >
-                                            {`${displayIndex}. ${reference}`}
-                                        </a>
-                                        {citation.sourceUrl && (
-                                            <a
-                                                className={styles.sourceLink}
-                                                href={citation.sourceUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                title="Open original in SharePoint"
-                                                onClick={e => e.stopPropagation()}
-                                            >
-                                                &#x2197;
-                                            </a>
-                                        )}
-                                    </span>
-                                );
-                            }
-                        })}
-                    </Stack>
-                </Stack.Item>
-            )}
-
-            {!!followupQuestions?.length && showFollowupQuestions && onFollowupQuestionClicked && (
-                <Stack.Item>
-                    <Stack horizontal wrap className={`${!!parsedAnswer.citations.length ? styles.followupQuestionsList : ""}`} tokens={{ childrenGap: 6 }}>
-                        <span className={styles.followupQuestionLearnMore}>{t("followupQuestions")}</span>
-                        {followupQuestions.map((x, i) => {
-                            return (
-                                <a key={i} className={styles.followupQuestion} title={x} onClick={() => onFollowupQuestionClicked(x)}>
-                                    {`${x}`}
-                                </a>
-                            );
-                        })}
-                    </Stack>
-                </Stack.Item>
-            )}
-        </Stack>
+            </div>
+        </div>
     );
 };
