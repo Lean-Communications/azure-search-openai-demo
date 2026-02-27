@@ -19,7 +19,7 @@ from .fileprocessor import FileProcessor
 from .htmlparser import LocalHTMLParser
 from .jsonparser import JsonParser
 from .parser import Parser
-from .pdfparser import DocumentAnalysisParser, HybridPdfParser, LocalDocxParser, LocalPdfParser
+from .pdfparser import DocumentAnalysisParser, HybridPdfParser, LocalDocxParser, LocalPdfParser, LocalPptxParser
 from .strategy import SearchInfo
 from .textparser import TextParser
 from .textsplitter import SentenceTextSplitter, SimpleTextSplitter
@@ -311,11 +311,13 @@ def build_file_processors(
     if docx_parser is not None:
         file_processors.update({".docx": FileProcessor(docx_parser, sentence_text_splitter)})
 
+    # PPTX can be parsed locally (no DI needed)
+    file_processors.update({".pptx": FileProcessor(LocalPptxParser(), sentence_text_splitter)})
+
     # These file formats require Document Intelligence
     if doc_int_parser is not None:
         file_processors.update(
             {
-                ".pptx": FileProcessor(doc_int_parser, sentence_text_splitter),
                 ".xlsx": FileProcessor(doc_int_parser, sentence_text_splitter),
                 ".png": FileProcessor(doc_int_parser, sentence_text_splitter),
                 ".jpg": FileProcessor(doc_int_parser, sentence_text_splitter),
