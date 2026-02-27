@@ -121,6 +121,80 @@ class LocalDocxParser(Parser):
             yield Page(page_num=page_num, offset=offset, text=page_text)
 
 
+class LocalPptxParser(Parser):
+    """
+    Concrete parser backed by python-pptx that can parse PPTX files into pages.
+    Each slide becomes one Page. Extracts visible text, tables, and speaker notes.
+    Images are extracted using the officeimageextractor module.
+    """
+
+    async def parse(self, content: IO) -> AsyncGenerator[Page, None]:
+        from pptx import Presentation
+
+        doc_name = getattr(content, "name", "unknown")
+        logger.info("Extracting text from '%s' using local PPTX parser (python-pptx)", doc_name)
+
+        try:
+            content.seek(0)
+        except (OSError, io.UnsupportedOperation):
+            pass
+        content_bytes = content.read()
+        prs = Presentation(io.BytesIO(content_bytes))
+
+        # Phase 1: extract text into Pages
+        pages: list[Page] = []
+        offset = 0
+        for slide_idx, slide in enumerate(prs.slides):
+            text_parts: list[str] = []
+
+            # Slide title as markdown heading
+            if slide.shapes.title is not None:
+                title_text = slide.shapes.title.text.strip()
+                if title_text:
+                    text_parts.append(f"# {title_text}")
+
+            # Other shapes: text frames and tables
+            for shape in slide.shapes:
+                if shape == slide.shapes.title:
+                    continue
+                if shape.has_table:
+                    for row in shape.table.rows:
+                        cells = [cell.text.strip() for cell in row.cells]
+                        text_parts.append(" | ".join(cells))
+                elif shape.has_text_frame:
+                    shape_text = shape.text_frame.text.strip()
+                    if shape_text:
+                        text_parts.append(shape_text)
+
+            # Speaker notes
+            if slide.has_notes_slide:
+                notes_text = slide.notes_slide.notes_text_frame.text.strip()
+                if notes_text:
+                    text_parts.append(f"\n---\nNotes: {notes_text}")
+
+            page_text = "\n".join(p for p in text_parts if p)
+            page = Page(page_num=slide_idx, offset=offset, text=page_text)
+            pages.append(page)
+            offset += len(page_text)
+
+        # Phase 2: extract and merge images
+        from .officeimageextractor import _extract_pptx_images
+
+        images = _extract_pptx_images(content_bytes, doc_name)
+        if images:
+            logger.info("Extracted %d images from '%s'", len(images), doc_name)
+            page_map = {p.page_num: p for p in pages}
+            for image in images:
+                target = page_map.get(image.page_num, pages[-1] if pages else None)
+                if target is not None:
+                    target.text = target.text.rstrip() + "\n" + image.placeholder
+                    target.images.append(image)
+
+        # Phase 3: yield pages
+        for page in pages:
+            yield page
+
+
 class DocumentAnalysisParser(Parser):
     """
     Concrete parser backed by Azure AI Document Intelligence that can parse many document formats into pages
