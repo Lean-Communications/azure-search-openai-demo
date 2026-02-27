@@ -84,7 +84,7 @@ async def generate_ground_truth(req: func.HttpRequest) -> func.HttpResponse:
     except Exception:
         body = {}
 
-    num_questions = body.get("num_questions", 200)
+    num_questions = body.get("num_questions", 50)
     num_search_documents = body.get("num_search_documents")
 
     from telemetry import emit_operation_completed, emit_operation_started
