@@ -119,27 +119,33 @@ const getAppServicesToken = (): Promise<AppServicesToken | null> => {
     }
 
     const getAppServicesTokenFromMe: () => Promise<AppServicesToken | null> = () => {
-        return fetch(appServicesAuthTokenUrl).then(r => {
-            if (r.ok) {
-                return r.json().then(json => {
-                    if (json.length > 0) {
-                        return {
-                            id_token: json[0]["id_token"] as string,
-                            access_token: json[0]["access_token"] as string,
-                            user_claims: json[0]["user_claims"].reduce((acc: Record<string, any>, item: Record<string, any>) => {
-                                acc[item.typ] = item.val;
-                                return acc;
-                            }, {}) as Record<string, any>,
-                            expires_on: json[0]["expires_on"] as string
-                        } as AppServicesToken;
+        return fetch(appServicesAuthTokenUrl)
+            .then(r => {
+                if (r.ok) {
+                    const contentType = r.headers.get("content-type") || "";
+                    if (!contentType.includes("application/json")) {
+                        return null;
                     }
+                    return r.json().then(json => {
+                        if (json.length > 0) {
+                            return {
+                                id_token: json[0]["id_token"] as string,
+                                access_token: json[0]["access_token"] as string,
+                                user_claims: json[0]["user_claims"].reduce((acc: Record<string, any>, item: Record<string, any>) => {
+                                    acc[item.typ] = item.val;
+                                    return acc;
+                                }, {}) as Record<string, any>,
+                                expires_on: json[0]["expires_on"] as string
+                            } as AppServicesToken;
+                        }
 
-                    return null;
-                });
-            }
+                        return null;
+                    });
+                }
 
-            return null;
-        });
+                return null;
+            })
+            .catch(() => null);
     };
 
     return getAppServicesTokenFromMe().then(token => {
