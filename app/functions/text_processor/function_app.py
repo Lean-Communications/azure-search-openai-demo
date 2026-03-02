@@ -270,10 +270,17 @@ async def process_document(data: dict[str, Any]) -> list[dict[str, Any]]:
                 "url": image.url or "",
                 "description": image.description or "",
                 "boundingbox": list(image.bbox),
+                "context_title": image.context_title or "",
+                "context_text": image.context_text or "",
+                "alt_text": image.alt_text or "",
+                "source_document_summary": image.source_document_summary or "",
             }
             if settings.use_multimodal and image.embedding is not None:
                 ref["embedding"] = image.embedding
             image_refs.append(ref)
+        source_doc_summary = next(
+            (img.source_document_summary for img in section.chunk.images if img.source_document_summary), None
+        )
         chunk_entry: dict[str, Any] = {
             "id": f"{normalized_id}-{idx:04d}",
             "content": content,
@@ -281,6 +288,7 @@ async def process_document(data: dict[str, Any]) -> list[dict[str, Any]]:
             "sourcefile": file_name,
             "parent_id": storage_url,
             **({"images": image_refs} if image_refs else {}),
+            **({"sourceDocumentSummary": source_doc_summary} if source_doc_summary else {}),
             # Include ACLs for document-level access control (only when ACLs are enabled).
             # When ACLs are enabled but there are no specific OIDs/groups, include empty arrays
             # so downstream consumers can distinguish "no ACLs" from "ACLs not extracted/disabled".

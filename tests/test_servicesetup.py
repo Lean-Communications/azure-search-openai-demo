@@ -311,14 +311,19 @@ def test_build_file_processors_with_di_enables_office_formats():
 
 
 def test_build_file_processors_without_di_excludes_office_formats():
-    """Test that build_file_processors excludes Office formats when DI is not available."""
+    """Test that build_file_processors excludes DI-only formats when DI is not available.
+
+    PPTX and DOCX have local parsers and should still be available.
+    """
     file_processors = build_file_processors(
         azure_credential=MockAzureCredential(),
         document_intelligence_service=None,
     )
 
-    assert ".docx" not in file_processors
-    assert ".pptx" not in file_processors
+    # PPTX and DOCX have local parsers, so they should be present even without DI
+    assert ".pptx" in file_processors
+    assert ".docx" in file_processors
+    # XLSX still requires DI
     assert ".xlsx" not in file_processors
 
 

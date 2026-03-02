@@ -334,6 +334,15 @@ class ChatReadRetrieveReadApproach(Approach):
 
             return (extra_info, return_answer())
 
+        # Strip base64 data URIs from text sources before sending to the LLM.
+        # Images are already included as proper image_url content parts (at detail=low),
+        # so embedding the same data as raw text in Sources would waste hundreds of
+        # thousands of tokens and trigger rate limits.
+        llm_text_sources = [
+            re.sub(r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+", "[image]", t)
+            for t in (extra_info.data_points.text or [])
+        ]
+
         messages = self.prompt_manager.render_prompt(
             self.answer_prompt,
             self.get_system_prompt_variables(overrides.get("prompt_template"))
@@ -341,7 +350,7 @@ class ChatReadRetrieveReadApproach(Approach):
                 "include_follow_up_questions": bool(overrides.get("suggest_followup_questions")),
                 "past_messages": self.sanitize_past_messages(messages[:-1]),
                 "user_query": original_user_query,
-                "text_sources": extra_info.data_points.text,
+                "text_sources": llm_text_sources,
                 "image_sources": extra_info.data_points.images,
                 "citations": extra_info.data_points.citations,
             },

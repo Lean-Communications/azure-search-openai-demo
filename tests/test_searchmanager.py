@@ -8,11 +8,14 @@ from azure.search.documents.aio import SearchClient
 from azure.search.documents.indexes.aio import SearchIndexClient
 from azure.search.documents.indexes.models import (
     PermissionFilter,
+    SearchField,
     SearchFieldDataType,
     SearchIndex,
     SearchIndexPermissionFilterOption,
     SimpleField,
     VectorSearch,
+    VectorSearchAlgorithmConfiguration,
+    VectorSearchProfile,
 )
 from openai.types.create_embedding_response import Usage
 
@@ -1276,3 +1279,83 @@ async def test_create_knowledgebase_with_web_and_sharepoint_sources(monkeypatch,
         web_ks.name,
         sharepoint_ks.name,
     }
+
+
+@pytest.mark.asyncio
+async def test_create_index_migrates_images_subfields(monkeypatch, search_info):
+    """Test that existing images field gets new subfields added during migration."""
+    updated_indexes = []
+
+    async def mock_create_index(self, index):
+        pass  # pragma: no cover
+
+    async def mock_list_index_names(self):
+        yield "test"
+
+    async def mock_get_index(self, *args, **kwargs):
+        # Simulate an existing index with an images field that has only the 4 original subfields
+        return SearchIndex(
+            name="test",
+            fields=[
+                SimpleField(name="storageUrl", type=SearchFieldDataType.String, filterable=True),
+                SearchField(
+                    name="images",
+                    type=SearchFieldDataType.Collection(SearchFieldDataType.ComplexType),
+                    fields=[
+                        SearchField(
+                            name="embedding",
+                            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+                            searchable=True,
+                            vector_search_dimensions=1024,
+                            vector_search_profile_name="images_embedding_profile",
+                        ),
+                        SearchField(name="url", type=SearchFieldDataType.String),
+                        SearchField(name="description", type=SearchFieldDataType.String),
+                        SearchField(
+                            name="boundingbox",
+                            type=SearchFieldDataType.Collection(SearchFieldDataType.Double),
+                        ),
+                    ],
+                ),
+            ],
+            vector_search=VectorSearch(
+                profiles=[VectorSearchProfile(name="images_embedding_profile", algorithm_configuration_name="images-algorithm")],
+                algorithms=[VectorSearchAlgorithmConfiguration(name="images-algorithm")],
+                vectorizers=[],
+            ),
+        )
+
+    async def mock_create_or_update_index(self, index, *args, **kwargs):
+        updated_indexes.append(index)
+
+    monkeypatch.setattr(SearchIndexClient, "create_index", mock_create_index)
+    monkeypatch.setattr(SearchIndexClient, "list_index_names", mock_list_index_names)
+    monkeypatch.setattr(SearchIndexClient, "get_index", mock_get_index)
+    monkeypatch.setattr(SearchIndexClient, "create_or_update_index", mock_create_or_update_index)
+
+    search_info_with_vision = SearchInfo(
+        endpoint=search_info.endpoint,
+        credential=search_info.credential,
+        index_name=search_info.index_name,
+        azure_vision_endpoint="https://testvision.cognitiveservices.azure.com/",
+    )
+
+    manager = SearchManager(search_info_with_vision, search_images=True, field_name_embedding="embedding")
+    await manager.create_index()
+
+    # Find the update call that modified the images field
+    assert len(updated_indexes) >= 1, "Index should have been updated"
+    final_index = updated_indexes[-1]
+    images_field = next((f for f in final_index.fields if f.name == "images"), None)
+    assert images_field is not None, "images field should still exist"
+
+    subfield_names = {sf.name for sf in images_field.fields}
+    assert "context_title" in subfield_names, "context_title subfield should have been added"
+    assert "context_text" in subfield_names, "context_text subfield should have been added"
+    assert "alt_text" in subfield_names, "alt_text subfield should have been added"
+    assert "source_document_summary" in subfield_names, "source_document_summary subfield should have been added"
+    # Original subfields still present
+    assert "embedding" in subfield_names
+    assert "url" in subfield_names
+    assert "description" in subfield_names
+    assert "boundingbox" in subfield_names

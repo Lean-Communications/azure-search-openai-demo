@@ -32,17 +32,17 @@ class ContentUnderstandingDescriber(MediaDescriber):
     analyzer_schema = {
         "analyzerId": "image_analyzer",
         "name": "Image understanding",
-        "description": "Extract detailed structured information from images extracted from documents.",
+        "description": "Trekk ut detaljert strukturert informasjon fra bilder hentet fra dokumenter.",
         "baseAnalyzerId": "prebuilt-image",
         "scenario": "image",
         "config": {"returnDetails": False},
         "fieldSchema": {
             "name": "ImageInformation",
-            "descriptions": "Description of image.",
+            "descriptions": "Beskrivelse av bildet.",
             "fields": {
                 "Description": {
                     "type": "string",
-                    "description": "Description of the image. If the image has a title, start with the title. Include a 2-sentence summary. If the image is a chart, diagram, or table, include the underlying data in an HTML table tag, with accurate numbers. If the image is a chart, describe any axis or legends. The only allowed HTML tags are the table/thead/tr/td/tbody tags.",
+                    "description": "Beskrivelse av bildet på norsk. Hvis bildet har en tittel, start med tittelen. Inkluder et sammendrag på 2 setninger. Hvis bildet er et diagram, tabell eller graf, inkluder de underliggende dataene i en HTML-tabell med nøyaktige tall. Hvis bildet er en graf, beskriv akser og forklaringer. De eneste tillatte HTML-taggene er table/thead/tr/td/tbody.",
                 },
             },
         },
@@ -143,13 +143,13 @@ class MultimodalModelDescriber(MediaDescriber):
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a helpful assistant that describes images from organizational documents.",
+                            "content": "Du er en hjelpsom assistent som beskriver bilder fra organisasjonsdokumenter. Svar alltid på norsk.",
                         },
                         {
                             "role": "user",
                             "content": [
                                 {
-                                    "text": "Describe image with no more than 5 sentences. Do not speculate about anything you don't know.",
+                                    "text": "Beskriv bildet med maksimalt 5 setninger. Ikke spekluler om noe du ikke vet.",
                                     "type": "text",
                                 },
                                 {"image_url": {"url": image_datauri, "detail": "low"}, "type": "image_url"},

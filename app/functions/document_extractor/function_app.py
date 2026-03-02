@@ -69,6 +69,8 @@ def configure_global_settings():
         logger.info("Using default Managed Identity without client ID")
         azure_credential = ManagedIdentityCredential()
 
+    use_hybrid_pdf_parser = os.getenv("USE_HYBRID_PDF_PARSER", "").lower() == "true"
+
     # Build file processors dict for parser selection
     file_processors = build_file_processors(
         azure_credential=azure_credential,
@@ -76,6 +78,7 @@ def configure_global_settings():
         document_intelligence_key=None,
         use_local_pdf_parser=use_local_pdf_parser,
         use_local_html_parser=use_local_html_parser,
+        use_hybrid_pdf_parser=use_hybrid_pdf_parser,
         process_figures=use_multimodal,
     )
 

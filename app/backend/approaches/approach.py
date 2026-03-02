@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from abc import ABC
+from urllib.parse import unquote
 from collections.abc import AsyncGenerator, Awaitable
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional, TypedDict, cast
@@ -761,6 +762,7 @@ class Approach(ABC):
         text_sources = []
         image_sources = []
         seen_urls = set()
+        blob_url_to_base64: dict[str, str] = {}
         external_results_metadata: list[dict[str, Any]] = []
         citation_activity_details: dict[str, dict[str, Any]] = {}
         citation_source_urls: dict[str, str] = {}
@@ -777,13 +779,21 @@ class Approach(ABC):
                 if doc.storage_url:
                     citation_source_urls[citation] = doc.storage_url
 
-            # If semantic captions are used, extract captions; otherwise, use content
+            # If semantic captions are used, extract captions; otherwise, use content.
+            # Deduplicate by citation: only keep the longest entry per sourcepage so
+            # multiple search results from the same slide don't repeat the same content.
             if include_text_sources:
                 if use_semantic_captions and doc.captions:
                     cleaned = clean_source(" . ".join([cast(str, c.text) for c in doc.captions]))
                 else:
                     cleaned = clean_source(doc.content or "")
-                text_sources.append(f"{citation}: {cleaned}")
+                entry = f"{citation}: {cleaned}"
+                existing = next((i for i, t in enumerate(text_sources) if t.startswith(f"{citation}: ")), None)
+                if existing is not None:
+                    if len(entry) > len(text_sources[existing]):
+                        text_sources[existing] = entry
+                else:
+                    text_sources.append(entry)
 
             if download_image_sources and hasattr(doc, "images") and doc.images:
                 for img in doc.images:
@@ -791,9 +801,10 @@ class Approach(ABC):
                     if img["url"] in seen_urls or not img["url"]:
                         continue
                     seen_urls.add(img["url"])
-                    url = await self.download_blob_as_base64(img["url"], user_oid=user_oid)
-                    if url:
-                        image_sources.append(url)
+                    b64 = await self.download_blob_as_base64(img["url"], user_oid=user_oid)
+                    if b64:
+                        image_sources.append(b64)
+                        blob_url_to_base64[img["url"]] = b64
                     image_citation = self.get_image_citation(doc.sourcepage or "", img["url"])
                     citations.append(image_citation)
 
@@ -804,8 +815,31 @@ class Approach(ABC):
                 b64 = await self.download_blob_as_base64(doc.image_url, user_oid=user_oid)
                 if b64:
                     image_sources.append(b64)
+                    blob_url_to_base64[doc.image_url] = b64
                     image_citation = self.get_image_citation(doc.sourcepage or "", doc.image_url)
                     citations.append(image_citation)
+
+        # Replace blob storage URLs in text sources with base64 data URIs so that
+        # <img> tags in the HTML render without needing authenticated requests
+        if blob_url_to_base64:
+            for i, text in enumerate(text_sources):
+                for blob_url, base64_uri in blob_url_to_base64.items():
+                    if blob_url in text:
+                        text_sources[i] = text_sources[i].replace(blob_url, base64_uri)
+
+        # Deduplicate <img> tags within each text source — ingestion can produce
+        # content with the same image referenced multiple times on the same page.
+        for i, text in enumerate(text_sources):
+            seen_srcs: set[str] = set()
+
+            def dedup_img(match: re.Match) -> str:
+                src = match.group(1)
+                if src in seen_srcs:
+                    return ""
+                seen_srcs.add(src)
+                return match.group(0)
+
+            text_sources[i] = re.sub(r'<img\s[^>]*src=["\']([^"\']+)["\'][^>]*/?\s*>', dedup_img, text)
         if web_results:
             for web in web_results:
                 citation = self.get_citation(web.url)
@@ -864,6 +898,7 @@ class Approach(ABC):
             blob_path = "/".join(parts[4:])  # Skip scheme, empty, host, container
         else:
             blob_path = image_url
+        blob_path = unquote(blob_path)
         logging.info("get_image_citation: image_url=%s -> blob_path=%s", image_url, blob_path)
         return blob_path
 
@@ -904,6 +939,24 @@ class Approach(ABC):
 
         if result:
             content, _ = result  # Unpack the tuple, ignoring properties
+
+            # Resize large images to reduce payload size. At detail=low, OpenAI
+            # resizes to 512x512 anyway, so sending multi-MB originals wastes
+            # bandwidth and can trigger rate-limiter token estimation issues.
+            try:
+                import io
+                from PIL import Image
+
+                img_obj = Image.open(io.BytesIO(content))
+                max_dim = 1024
+                if max(img_obj.size) > max_dim:
+                    img_obj.thumbnail((max_dim, max_dim), Image.LANCZOS)
+                    buf = io.BytesIO()
+                    img_obj.save(buf, format="PNG", optimize=True)
+                    content = buf.getvalue()
+            except Exception:
+                pass  # If resize fails, send the original
+
             img = base64.b64encode(content).decode("utf-8")
             return f"data:image/png;base64,{img}"
         return None

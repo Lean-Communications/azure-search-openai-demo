@@ -157,6 +157,8 @@ async def content_file(path: str, auth_claims: dict[str, Any]):
     if path.find("#page=") > 0:
         path_parts = path.rsplit("#page=", 1)
         path = path_parts[0]
+    if path.find("#slide=") > 0:
+        path = path.rsplit("#slide=", 1)[0]
     current_app.logger.info("Opening file %s", path)
     blob_manager: BlobManager = current_app.config[CONFIG_GLOBAL_BLOB_MANAGER]
 
@@ -674,6 +676,8 @@ async def setup_clients():
             search_field_name_embedding=AZURE_SEARCH_FIELD_NAME_EMBEDDING,
             blob_manager=user_blob_manager,
             figure_processor=figure_processor,
+            summary_client=openai_client if os.getenv("USE_DOCUMENT_SUMMARY") == "true" else None,
+            summary_model=OPENAI_CHATGPT_MODEL if os.getenv("USE_DOCUMENT_SUMMARY") == "true" else None,
         )
         current_app.config[CONFIG_INGESTER] = ingester
 

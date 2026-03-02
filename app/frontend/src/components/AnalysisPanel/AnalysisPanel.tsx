@@ -8,6 +8,7 @@ import { ChatAppResponse, getHeaders } from "../../api";
 import { getToken, useLogin } from "../../authConfig";
 import { MarkdownViewer } from "../MarkdownViewer";
 import { SupportingContent } from "../SupportingContent";
+import { rewriteBlobImageUrls } from "../SupportingContent/SupportingContentParser";
 import styles from "./AnalysisPanel.module.css";
 import { AnalysisPanelTabs } from "./AnalysisPanelTabs";
 import { ThoughtProcess } from "./ThoughtProcess";
@@ -41,6 +42,15 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
     const fetchCitation = async () => {
         const token = client ? await getToken(client) : undefined;
         if (activeCitation) {
+            // Skip fetching PPTX/DOCX files from blob storage — they are stored
+            // in SharePoint, not blob, and are rendered from data_points text chunks instead.
+            const urlWithoutHash = activeCitation.split("#")[0];
+            const ext = urlWithoutHash.split(".").pop()?.toLowerCase();
+            if (ext === "pptx" || ext === "docx") {
+                setCitation("");
+                return;
+            }
+
             const originalHash = activeCitation.indexOf("#") ? activeCitation.split("#")[1] : "";
             const response = await fetch(activeCitation, {
                 method: "GET",
@@ -77,12 +87,16 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
             case "docx": {
                 const citationRef = activeCitation.replace(/^\/content\//, "");
                 const textItems = answer.context.data_points?.text ?? [];
-                const matchingChunks = textItems
-                    .filter(item => item.startsWith(citationRef + ": "))
-                    .map(item => {
-                        const content = item.substring(item.indexOf(": ") + 2);
-                        return DOMPurify.sanitize(content);
-                    });
+                const matchingChunks = [
+                    ...new Set(
+                        textItems
+                            .filter(item => item.startsWith(citationRef + ": "))
+                            .map(item => {
+                                const content = item.substring(item.indexOf(": ") + 2);
+                                return DOMPurify.sanitize(rewriteBlobImageUrls(content));
+                            })
+                    )
+                ];
 
                 if (matchingChunks.length > 0) {
                     return (
