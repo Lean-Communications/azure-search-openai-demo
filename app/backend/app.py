@@ -157,6 +157,8 @@ async def content_file(path: str, auth_claims: dict[str, Any]):
     if path.find("#page=") > 0:
         path_parts = path.rsplit("#page=", 1)
         path = path_parts[0]
+    if path.find("#slide=") > 0:
+        path = path.rsplit("#slide=", 1)[0]
     current_app.logger.info("Opening file %s", path)
     blob_manager: BlobManager = current_app.config[CONFIG_GLOBAL_BLOB_MANAGER]
 

@@ -32,6 +32,14 @@ type HtmlParsedAnswer = {
 
 const isWebCitation = (reference: string) => reference.startsWith("http://") || reference.startsWith("https://");
 
+const decodeIfNeeded = (s: string): string => {
+    try {
+        return decodeURIComponent(s);
+    } catch {
+        return s;
+    }
+};
+
 const normalizeAnswerText = (answer: ChatAppResponse, isStreaming: boolean): string => {
     let parsedAnswer = answer.message.content.trim();
 
@@ -130,7 +138,10 @@ const collectCitations = (answer: ChatAppResponse, isStreaming: boolean): { frag
             const trailingMatch = nextText.match(/^\(([^)]+\.(png|jpg|jpeg))\)/i);
             if (trailingMatch) {
                 const imageFilename = trailingMatch[1];
-                const imageCitation = possibleCitations.find(citation => citation.endsWith(imageFilename));
+                const decodedImageFilename = decodeIfNeeded(imageFilename);
+                const imageCitation = possibleCitations.find(
+                    citation => citation.endsWith(imageFilename) || decodeIfNeeded(citation).endsWith(decodedImageFilename)
+                );
                 if (imageCitation) {
                     matchingCitation = imageCitation;
                     // Strip the consumed parenthetical from the next text part
@@ -141,7 +152,8 @@ const collectCitations = (answer: ChatAppResponse, isStreaming: boolean): { frag
 
         // Priority 2: Direct match — citation text matches a known citation suffix
         if (!matchingCitation) {
-            matchingCitation = possibleCitations.find(citation => citation.endsWith(part));
+            const decodedPart = decodeIfNeeded(part);
+            matchingCitation = possibleCitations.find(citation => citation.endsWith(part) || decodeIfNeeded(citation).endsWith(decodedPart));
         }
 
         // Priority 3: Parenthetical inside brackets — [file.pptx#slide=N(image_name.png)]
@@ -149,7 +161,22 @@ const collectCitations = (answer: ChatAppResponse, isStreaming: boolean): { frag
             const imageMatch = part.match(/\(([^)]+)\)$/);
             if (imageMatch) {
                 const imageFilename = imageMatch[1];
-                matchingCitation = possibleCitations.find(citation => citation.endsWith(imageFilename));
+                const decodedImageFilename = decodeIfNeeded(imageFilename);
+                matchingCitation = possibleCitations.find(
+                    citation => citation.endsWith(imageFilename) || decodeIfNeeded(citation).endsWith(decodedImageFilename)
+                );
+            }
+        }
+
+        // Priority 4: Strip parenthetical and match just the document part
+        // Handles cases where the LLM uses a placeholder like (image_name.png) instead of the real filename
+        if (!matchingCitation) {
+            const withoutParen = part.replace(/\([^)]+\)$/, "").trim();
+            if (withoutParen !== part) {
+                const decodedWithoutParen = decodeIfNeeded(withoutParen);
+                matchingCitation = possibleCitations.find(
+                    citation => citation.endsWith(withoutParen) || decodeIfNeeded(citation).endsWith(decodedWithoutParen)
+                );
             }
         }
 
