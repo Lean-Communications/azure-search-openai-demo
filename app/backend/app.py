@@ -224,6 +224,29 @@ async def format_as_ndjson(r: AsyncGenerator[dict, None]) -> AsyncGenerator[str,
         yield json.dumps(error_dict(error))
 
 
+@bp.route("/eval/chat", methods=["POST"])
+async def eval_chat():
+    """Endpoint for eval runner — excluded from Easy Auth, validated via API key."""
+    eval_key = current_app.config.get("EVAL_API_KEY")
+    if not eval_key or request.headers.get("X-Eval-Api-Key") != eval_key:
+        abort(403)
+    if not request.is_json:
+        return jsonify({"error": "request must be json"}), 415
+    request_json = await request.get_json()
+    context = request_json.get("context", {})
+    context["auth_claims"] = {}
+    try:
+        approach: Approach = cast(Approach, current_app.config[CONFIG_CHAT_APPROACH])
+        result = await approach.run(
+            request_json["messages"],
+            context=context,
+            session_state=None,
+        )
+        return jsonify(result)
+    except Exception as error:
+        return error_response(error, "/eval/chat")
+
+
 @bp.route("/chat", methods=["POST"])
 @authenticated
 async def chat(auth_claims: dict[str, Any]):
@@ -716,6 +739,7 @@ async def setup_clients():
     current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED] = USE_CHAT_HISTORY_COSMOS
     current_app.config[CONFIG_AGENTIC_KNOWLEDGEBASE_ENABLED] = USE_AGENTIC_KNOWLEDGEBASE
     current_app.config[CONFIG_MULTIMODAL_ENABLED] = USE_MULTIMODAL
+    current_app.config["EVAL_API_KEY"] = os.getenv("EVAL_API_KEY", "")
     current_app.config[CONFIG_RAG_SEARCH_TEXT_EMBEDDINGS] = RAG_SEARCH_TEXT_EMBEDDINGS
     current_app.config[CONFIG_RAG_SEARCH_IMAGE_EMBEDDINGS] = RAG_SEARCH_IMAGE_EMBEDDINGS
     current_app.config[CONFIG_RAG_SEND_TEXT_SOURCES] = RAG_SEND_TEXT_SOURCES

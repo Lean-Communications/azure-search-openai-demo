@@ -134,6 +134,9 @@ param speechServiceSkuName string // Set in main.parameters.json
 param speechServiceVoice string = ''
 param useMultimodal bool = false
 param useEval bool = false
+@secure()
+@description('Shared API key for eval runner to call backend /eval/chat endpoint (bypasses Easy Auth)')
+param evalApiKey string = uniqueString(subscription().id, environmentName, 'eval-key')
 param useCloudIngestion bool = false
 param useCloudIngestionAcls bool = false
 @description('Use an existing ADLS Gen2 storage account instead of provisioning a new one')
@@ -600,9 +603,10 @@ var appEnvVariables = {
   USE_MEDIA_DESCRIBER_AZURE_CU: useMediaDescriberAzureCU
   AZURE_CONTENTUNDERSTANDING_ENDPOINT: useMediaDescriberAzureCU ? contentUnderstanding!.outputs.endpoint : ''
   RUNNING_IN_PRODUCTION: 'true'
-  // Eval model configuration
+  // Eval configuration
   AZURE_OPENAI_EVAL_DEPLOYMENT: useEval ? eval.deploymentName : ''
   AZURE_OPENAI_EVAL_MODEL: useEval ? eval.modelName : ''
+  EVAL_API_KEY: useEval ? evalApiKey : ''
   // RAG Configuration
   RAG_SEARCH_TEXT_EMBEDDINGS: ragSearchTextEmbeddings
   RAG_SEARCH_IMAGE_EMBEDDINGS: ragSearchImageEmbeddings
@@ -728,12 +732,13 @@ module acaAuth 'core/host/container-apps-auth.bicep' = if (deploymentTarget == '
     blobContainerUri: 'https://${storageAccountName}.blob.${environment().suffixes.storage}/${tokenStorageContainerName}'
     appIdentityResourceId: (deploymentTarget == 'appservice') ? '' : acaBackend!.outputs.identityResourceId
     additionalAllowedAudiences: [serverAppId]
+    excludedPaths: useEval ? ['/eval/chat'] : []
   }
 }
 
-// Compute the eval target URL (the backend /chat endpoint)
+// Compute the eval target URL (uses /eval/chat to bypass Easy Auth)
 var backendUri = deploymentTarget == 'appservice' ? backend!.outputs.uri : acaBackend!.outputs.uri
-var evalTargetUrl = '${backendUri}/chat'
+var evalTargetUrl = '${backendUri}/eval/chat'
 
 // Optional Azure Functions for document ingestion and processing (deployed when cloud ingestion or eval is enabled)
 module functions 'app/functions.bicep' = if (useCloudIngestion || useEval) {

@@ -81,16 +81,20 @@ async def _call_chat_endpoint(
     question: str,
     overrides: dict,
     bearer_token: str | None = None,
+    eval_api_key: str | None = None,
 ) -> tuple[str, list[str], float]:
     """
     Call the /chat endpoint and return (answer, context_texts, latency_seconds).
     """
     headers = {"Content-Type": "application/json"}
-    if bearer_token:
+    if eval_api_key:
+        headers["X-Eval-Api-Key"] = eval_api_key
+        logger.info("Sending request with eval API key")
+    elif bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
         logger.info("Sending request with Bearer token (length=%d)", len(bearer_token))
     else:
-        logger.warning("No bearer token — sending request without Authorization header")
+        logger.warning("No bearer token or API key — sending request without auth header")
 
     payload = {
         "messages": [{"content": question, "role": "user"}],
@@ -224,6 +228,7 @@ async def run_evaluation(
     container_name = os.getenv("EVAL_BLOB_CONTAINER", "eval-data")
     target_url = os.environ["EVAL_TARGET_URL"]
     target_app_id = os.getenv("EVAL_TARGET_APP_ID", "")
+    eval_api_key = os.getenv("EVAL_API_KEY", "")
     eval_deployment = os.getenv("AZURE_OPENAI_EVAL_DEPLOYMENT", "eval")
 
     azure_openai_custom_url = os.getenv("AZURE_OPENAI_CUSTOM_URL")
@@ -267,24 +272,13 @@ async def run_evaluation(
         qa_pairs = qa_pairs[:num_questions]
 
     logger.info("Running evaluation run_id=%s with %d questions against %s", run_id, len(qa_pairs), target_url)
-    logger.info("EVAL_TARGET_APP_ID=%s (truthy=%s)", target_app_id, bool(target_app_id))
 
-    # Acquire bearer token for target app
-    bearer_token = await _get_bearer_token(credential, target_app_id)
-    logger.info("Bearer token acquired: %s (length=%d)", bearer_token is not None, len(bearer_token) if bearer_token else 0)
-
-    # Decode JWT claims for debugging (token is base64-encoded, no verification needed)
-    if bearer_token:
-        import base64
-        parts = bearer_token.split(".")
-        if len(parts) >= 2:
-            # Add padding and decode payload
-            payload = parts[1] + "=" * (4 - len(parts[1]) % 4)
-            try:
-                claims = json.loads(base64.b64decode(payload))
-                logger.info("JWT claims: aud=%s appid=%s azp=%s iss=%s sub=%s", claims.get("aud"), claims.get("appid"), claims.get("azp"), claims.get("iss"), claims.get("sub"))
-            except Exception as e:
-                logger.warning("Could not decode JWT: %s", e)
+    # Use eval API key if available (bypasses Easy Auth via /eval/chat endpoint),
+    # otherwise fall back to Bearer token auth
+    bearer_token = None
+    if not eval_api_key and target_app_id:
+        bearer_token = await _get_bearer_token(credential, target_app_id)
+        logger.info("Bearer token acquired: %s", bearer_token is not None)
 
     results = []
     async with httpx.AsyncClient(follow_redirects=False) as client:
@@ -296,7 +290,7 @@ async def run_evaluation(
 
             # Call chat endpoint
             answer, context_texts, latency = await _call_chat_endpoint(
-                client, target_url, question, chat_overrides, bearer_token
+                client, target_url, question, chat_overrides, bearer_token, eval_api_key
             )
 
             # Local metrics

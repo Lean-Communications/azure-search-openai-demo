@@ -526,6 +526,7 @@ module evalRunner 'functions-app.bicep' = if (deployEvalRunner) {
       EVAL_TARGET_URL: evalTargetUrl
       EVAL_TARGET_APP_ID: evalTargetAppId
       EVAL_BLOB_CONTAINER: 'eval-data'
+      EVAL_API_KEY: appEnvVariables.EVAL_API_KEY
     })
     enableEasyAuth: false
     instanceMemoryMB: 2048
