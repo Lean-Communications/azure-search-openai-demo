@@ -6,6 +6,7 @@ calls the deployed /chat endpoint for each question, grades responses,
 stores results in blob, and emits App Insights custom events.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -280,59 +281,73 @@ async def run_evaluation(
         bearer_token = await _get_bearer_token(credential, target_app_id)
         logger.info("Bearer token acquired: %s", bearer_token is not None)
 
-    results = []
+    concurrency = int(os.getenv("EVAL_CONCURRENCY", "5"))
+
+    async def evaluate_single(client, i, qa):
+        question = qa["question"]
+        truth = qa.get("truth", "")
+
+        logger.info("Evaluating question %d/%d: %s", i + 1, len(qa_pairs), question[:80])
+
+        # Call chat endpoint
+        answer, context_texts, latency = await _call_chat_endpoint(
+            client, target_url, question, chat_overrides, bearer_token, eval_api_key
+        )
+
+        # Local metrics
+        any_citation = _compute_any_citation(answer)
+        citations_matched = _compute_citations_matched(answer, truth)
+        answer_length = len(answer)
+
+        # GPT-based grading
+        gpt_scores = await _grade_with_gpt(
+            client, azure_endpoint, eval_deployment, credential, question, answer, context_texts
+        )
+
+        result = {
+            "question": question,
+            "truth": truth,
+            "source": qa.get("source", "generated"),
+            "answer": answer,
+            "context": context_texts[:3],
+            "groundedness": gpt_scores.get("groundedness", -1),
+            "relevance": gpt_scores.get("relevance", -1),
+            "citations_matched": citations_matched,
+            "any_citation": any_citation,
+            "latency": round(latency, 3),
+            "answer_length": answer_length,
+        }
+
+        # Emit per-question telemetry
+        emit_eval_question_result(
+            run_id=run_id,
+            question=question,
+            truth=truth,
+            answer=answer,
+            context="\n---\n".join(context_texts[:3]),
+            source=qa.get("source", "generated"),
+            groundedness=result["groundedness"],
+            relevance=result["relevance"],
+            citations_matched=citations_matched,
+            any_citation=any_citation,
+            latency=latency,
+            answer_length=answer_length,
+        )
+        return result
+
+    results = [None] * len(qa_pairs)
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def bounded_evaluate(client, i, qa):
+        async with semaphore:
+            return i, await evaluate_single(client, i, qa)
+
     async with httpx.AsyncClient(follow_redirects=False) as client:
-        for i, qa in enumerate(qa_pairs):
-            question = qa["question"]
-            truth = qa.get("truth", "")
-
-            logger.info("Evaluating question %d/%d: %s", i + 1, len(qa_pairs), question[:80])
-
-            # Call chat endpoint
-            answer, context_texts, latency = await _call_chat_endpoint(
-                client, target_url, question, chat_overrides, bearer_token, eval_api_key
-            )
-
-            # Local metrics
-            any_citation = _compute_any_citation(answer)
-            citations_matched = _compute_citations_matched(answer, truth)
-            answer_length = len(answer)
-
-            # GPT-based grading
-            gpt_scores = await _grade_with_gpt(
-                client, azure_endpoint, eval_deployment, credential, question, answer, context_texts
-            )
-
-            result = {
-                "question": question,
-                "truth": truth,
-                "source": qa.get("source", "generated"),
-                "answer": answer,
-                "context": context_texts[:3],
-                "groundedness": gpt_scores.get("groundedness", -1),
-                "relevance": gpt_scores.get("relevance", -1),
-                "citations_matched": citations_matched,
-                "any_citation": any_citation,
-                "latency": round(latency, 3),
-                "answer_length": answer_length,
-            }
-            results.append(result)
-
-            # Emit per-question telemetry
-            emit_eval_question_result(
-                run_id=run_id,
-                question=question,
-                truth=truth,
-                answer=answer,
-                context="\n---\n".join(context_texts[:3]),
-                source=qa.get("source", "generated"),
-                groundedness=result["groundedness"],
-                relevance=result["relevance"],
-                citations_matched=citations_matched,
-                any_citation=any_citation,
-                latency=latency,
-                answer_length=answer_length,
-            )
+        tasks = [bounded_evaluate(client, i, qa) for i, qa in enumerate(qa_pairs)]
+        for coro in asyncio.as_completed(tasks):
+            i, result = await coro
+            results[i] = result
+            logger.info("Completed question %d/%d", i + 1, len(qa_pairs))
 
     # Compute summary
     valid_groundedness = [r["groundedness"] for r in results if r["groundedness"] >= 0]
