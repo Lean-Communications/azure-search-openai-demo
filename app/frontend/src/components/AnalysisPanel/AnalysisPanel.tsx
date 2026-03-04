@@ -1,6 +1,7 @@
 import { useMsal } from "@azure/msal-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DOMPurify from "dompurify";
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -21,9 +22,10 @@ interface Props {
     citationHeight: string;
     answer: ChatAppResponse;
     onCitationClicked?: (citationFilePath: string) => void;
+    onClose?: () => void;
 }
 
-export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeight, className, onActiveTabChanged, onCitationClicked }: Props) => {
+export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeight, className, onActiveTabChanged, onCitationClicked, onClose }: Props) => {
     const isDisabledThoughtProcessTab: boolean = !answer.context.thoughts;
     const dataPoints = answer.context.data_points;
     const hasSupportingContent = Boolean(
@@ -120,17 +122,24 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
             value={activeTab}
             onValueChange={value => onActiveTabChanged(value as AnalysisPanelTabs)}
         >
-            <TabsList>
-                <TabsTrigger value={AnalysisPanelTabs.ThoughtProcessTab} disabled={isDisabledThoughtProcessTab}>
-                    {t("headerTexts.thoughtProcess")}
-                </TabsTrigger>
-                <TabsTrigger value={AnalysisPanelTabs.SupportingContentTab} disabled={isDisabledSupportingContentTab}>
-                    {t("headerTexts.supportingContent")}
-                </TabsTrigger>
-                <TabsTrigger value={AnalysisPanelTabs.CitationTab} disabled={isDisabledCitationTab}>
-                    {t("headerTexts.citation")}
-                </TabsTrigger>
-            </TabsList>
+            <div className="flex items-center justify-between">
+                <TabsList>
+                    <TabsTrigger value={AnalysisPanelTabs.ThoughtProcessTab} disabled={isDisabledThoughtProcessTab}>
+                        {t("headerTexts.thoughtProcess")}
+                    </TabsTrigger>
+                    <TabsTrigger value={AnalysisPanelTabs.SupportingContentTab} disabled={isDisabledSupportingContentTab}>
+                        {t("headerTexts.supportingContent")}
+                    </TabsTrigger>
+                    <TabsTrigger value={AnalysisPanelTabs.CitationTab} disabled={isDisabledCitationTab}>
+                        {t("headerTexts.citation")}
+                    </TabsTrigger>
+                </TabsList>
+                {onClose && (
+                    <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" aria-label="Close panel">
+                        <X size={18} />
+                    </button>
+                )}
+            </div>
             <TabsContent value={AnalysisPanelTabs.ThoughtProcessTab}>
                 <ThoughtProcess thoughts={answer.context.thoughts || []} onCitationClicked={onCitationClicked} />
             </TabsContent>

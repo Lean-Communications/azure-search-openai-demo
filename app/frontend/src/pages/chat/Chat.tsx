@@ -639,6 +639,7 @@ const Chat = () => {
                         answer={answers[selectedAnswer][1]}
                         activeTab={activeAnalysisPanelTab}
                         onCitationClicked={c => onShowCitation(c, selectedAnswer)}
+                        onClose={() => setActiveAnalysisPanelTab(undefined)}
                     />
                 )}
 
