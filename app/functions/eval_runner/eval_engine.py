@@ -195,17 +195,27 @@ Respond with ONLY a single integer from 1 to 5."""
             "temperature": 0,
             "max_tokens": 5,
         }
-        try:
-            resp = await client.post(api_url, json=payload, headers=headers, timeout=60.0)
-            if resp.status_code == 200:
-                text = resp.json()["choices"][0]["message"]["content"].strip()
-                scores[metric_name] = float(text)
-            else:
-                logger.warning("GPT grading for %s failed: %d", metric_name, resp.status_code)
-                scores[metric_name] = -1.0
-        except Exception as e:
-            logger.warning("GPT grading for %s error: %s", metric_name, e)
-            scores[metric_name] = -1.0
+        for attempt in range(4):
+            try:
+                resp = await client.post(api_url, json=payload, headers=headers, timeout=60.0)
+                if resp.status_code == 200:
+                    text = resp.json()["choices"][0]["message"]["content"].strip()
+                    scores[metric_name] = float(text)
+                    break
+                elif resp.status_code == 429:
+                    retry_after = int(resp.headers.get("retry-after", 2 ** attempt))
+                    logger.warning("GPT grading for %s rate-limited, retrying in %ds (attempt %d)", metric_name, retry_after, attempt + 1)
+                    await asyncio.sleep(retry_after)
+                else:
+                    logger.warning("GPT grading for %s failed: %d", metric_name, resp.status_code)
+                    scores[metric_name] = -1.0
+                    break
+            except Exception as e:
+                logger.warning("GPT grading for %s error: %s (attempt %d)", metric_name, e, attempt + 1)
+                if attempt < 3:
+                    await asyncio.sleep(2 ** attempt)
+                else:
+                    scores[metric_name] = -1.0
 
     return scores
 
@@ -281,7 +291,7 @@ async def run_evaluation(
         bearer_token = await _get_bearer_token(credential, target_app_id)
         logger.info("Bearer token acquired: %s", bearer_token is not None)
 
-    concurrency = int(os.getenv("EVAL_CONCURRENCY", "5"))
+    concurrency = int(os.getenv("EVAL_CONCURRENCY", "3"))
 
     async def evaluate_single(client, i, qa):
         question = qa["question"]
