@@ -285,27 +285,24 @@ async def ingest_document(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=400,
             )
 
-    try:
-        chunks_indexed = await process_and_index_document(filename, document_bytes, source_url)
-        return func.HttpResponse(
-            json.dumps({"status": "success", "filename": filename, "chunks_indexed": chunks_indexed}),
-            mimetype="application/json",
-            status_code=200,
-        )
-    except ValueError as e:
-        logger.error("Validation error for %s: %s", filename, str(e))
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}),
-            mimetype="application/json",
-            status_code=400,
-        )
-    except Exception as e:
-        logger.error("Error processing %s: %s", filename, str(e), exc_info=True)
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}),
-            mimetype="application/json",
-            status_code=500,
-        )
+    # Fire-and-forget: return 202 immediately so the Logic App doesn't time out
+    # waiting for the HTTP response. The function continues processing in the background
+    # (within the 30-minute functionTimeout). The Azure HTTP gateway has a hard ~10 min
+    # response timeout that we cannot override, so long-running work must be decoupled.
+    async def _background_task():
+        try:
+            chunks_indexed = await process_and_index_document(filename, document_bytes, source_url)
+            logger.info("[%s] Background ingestion completed — %d chunks indexed", filename, chunks_indexed)
+        except Exception as e:
+            logger.error("[%s] Background ingestion failed: %s", filename, str(e), exc_info=True)
+
+    asyncio.ensure_future(_background_task())
+
+    return func.HttpResponse(
+        json.dumps({"status": "accepted", "filename": filename}),
+        mimetype="application/json",
+        status_code=202,
+    )
 
 
 async def process_and_index_document(filename: str, document_bytes: bytes, source_url: str | None = None) -> int:
@@ -318,6 +315,7 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
     parser = file_processor.parser
 
     # 2. Parse document
+    logger.info("[%s] Parsing document (%d bytes)...", filename, len(document_bytes))
     document_stream = io.BytesIO(document_bytes)
     document_stream.name = filename
     pages: list[Page] = []
@@ -329,37 +327,62 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
         document_stream.close()
 
     if not pages:
-        logger.warning("No pages extracted from %s", filename)
+        logger.warning("[%s] No pages extracted", filename)
         return 0
 
+    logger.info("[%s] Parsed %d pages", filename, len(pages))
+
     # 2.5. Extract embedded images from Office documents (PPTX/DOCX)
+    # NOTE: LocalPptxParser and LocalDocxParser already call _extract_pptx/docx_images()
+    # during parse(), so we only run this for parsers that DON'T extract images themselves
+    # (e.g. DocumentAnalysisParser). Check if images were already extracted.
     ext = os.path.splitext(filename)[1].lower()
-    if ext in (".pptx", ".docx"):
+    already_has_images = any(len(p.images) > 0 for p in pages)
+    if ext in (".pptx", ".docx") and not already_has_images:
         from prepdocslib.officeimageextractor import extract_and_merge_office_images
 
         extract_and_merge_office_images(filename, document_bytes, pages)
+        total_images = sum(len(p.images) for p in pages)
+        logger.info("[%s] Extracted %d images from %s", filename, total_images, ext)
+    else:
+        total_images = sum(len(p.images) for p in pages)
+        if total_images:
+            logger.info("[%s] Parser already extracted %d images", filename, total_images)
 
     # 3. Process figures (upload to blob + describe + embed) — parallelized
     # Always generate GPT-4o descriptions so images are findable via text search.
     # When multimodal is also enabled, images additionally get visual embeddings.
     all_images = [image for page in pages for image in page.images]
     if all_images:
-        sem = asyncio.Semaphore(30)
+        sem = asyncio.Semaphore(3)
+        completed = 0
+        total = len(all_images)
+
+        next_milestone = 10  # next percentage milestone to log
 
         async def _process(img):
+            nonlocal completed, next_milestone
             async with sem:
-                return await process_page_image(
+                result = await process_page_image(
                     image=img,
                     document_filename=filename,
                     blob_manager=settings.blob_manager,
                     image_embeddings_client=settings.image_embeddings,
                     figure_processor=settings.figure_processor,
                 )
+                completed += 1
+                pct = completed * 100 // total
+                if pct >= next_milestone:
+                    logger.info("[%s] ===== IMAGE PROGRESS: %d/%d (%d%%) =====", filename, completed, total, pct)
+                    next_milestone = pct + 10 - (pct % 10)  # next 10% boundary
+                return result
 
-        logger.info("Processing %d figures concurrently for %s", len(all_images), filename)
+        logger.info("[%s] Processing %d images (concurrency=2)...", filename, total)
         await asyncio.gather(*[_process(img) for img in all_images])
+        logger.info("[%s] All %d images processed", filename, total)
 
     # 4. Chunk text (combines text with figure descriptions, then splits)
+    logger.info("[%s] Chunking text...", filename)
     file_obj = File(content=io.BytesIO(document_bytes))
     file_obj.content.name = filename
     sections = process_text(
@@ -369,15 +392,20 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
     )
 
     if not sections:
-        logger.warning("No sections produced from %s", filename)
+        logger.warning("[%s] No sections produced", filename)
         return 0
 
+    logger.info("[%s] Produced %d chunks", filename, len(sections))
+
     # 5. Remove old chunks for this file (avoids stale orphans on re-ingestion)
+    logger.info("[%s] Removing old chunks from index...", filename)
     await settings.search_manager.remove_content(path=filename)
 
     # 6. Embed and push to search index
+    logger.info("[%s] Embedding and indexing %d chunks...", filename, len(sections))
     await settings.search_manager.update_content(sections, url=source_url)
 
+    logger.info("[%s] Done — %d chunks indexed", filename, len(sections))
     return len(sections)
 
 
