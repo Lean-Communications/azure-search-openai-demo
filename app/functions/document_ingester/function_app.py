@@ -285,27 +285,24 @@ async def ingest_document(req: func.HttpRequest) -> func.HttpResponse:
                 status_code=400,
             )
 
-    try:
-        chunks_indexed = await process_and_index_document(filename, document_bytes, source_url)
-        return func.HttpResponse(
-            json.dumps({"status": "success", "filename": filename, "chunks_indexed": chunks_indexed}),
-            mimetype="application/json",
-            status_code=200,
-        )
-    except ValueError as e:
-        logger.error("Validation error for %s: %s", filename, str(e))
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}),
-            mimetype="application/json",
-            status_code=400,
-        )
-    except Exception as e:
-        logger.error("Error processing %s: %s", filename, str(e), exc_info=True)
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}),
-            mimetype="application/json",
-            status_code=500,
-        )
+    # Fire-and-forget: return 202 immediately so the Logic App doesn't time out
+    # waiting for the HTTP response. The function continues processing in the background
+    # (within the 30-minute functionTimeout). The Azure HTTP gateway has a hard ~10 min
+    # response timeout that we cannot override, so long-running work must be decoupled.
+    async def _background_task():
+        try:
+            chunks_indexed = await process_and_index_document(filename, document_bytes, source_url)
+            logger.info("[%s] Background ingestion completed — %d chunks indexed", filename, chunks_indexed)
+        except Exception as e:
+            logger.error("[%s] Background ingestion failed: %s", filename, str(e), exc_info=True)
+
+    asyncio.ensure_future(_background_task())
+
+    return func.HttpResponse(
+        json.dumps({"status": "accepted", "filename": filename}),
+        mimetype="application/json",
+        status_code=202,
+    )
 
 
 async def process_and_index_document(filename: str, document_bytes: bytes, source_url: str | None = None) -> int:
@@ -318,6 +315,7 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
     parser = file_processor.parser
 
     # 2. Parse document
+    logger.info("[%s] Parsing document (%d bytes)...", filename, len(document_bytes))
     document_stream = io.BytesIO(document_bytes)
     document_stream.name = filename
     pages: list[Page] = []
@@ -329,37 +327,62 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
         document_stream.close()
 
     if not pages:
-        logger.warning("No pages extracted from %s", filename)
+        logger.warning("[%s] No pages extracted", filename)
         return 0
 
+    logger.info("[%s] Parsed %d pages", filename, len(pages))
+
     # 2.5. Extract embedded images from Office documents (PPTX/DOCX)
+    # NOTE: LocalPptxParser and LocalDocxParser already call _extract_pptx/docx_images()
+    # during parse(), so we only run this for parsers that DON'T extract images themselves
+    # (e.g. DocumentAnalysisParser). Check if images were already extracted.
     ext = os.path.splitext(filename)[1].lower()
-    if ext in (".pptx", ".docx"):
+    already_has_images = any(len(p.images) > 0 for p in pages)
+    if ext in (".pptx", ".docx") and not already_has_images:
         from prepdocslib.officeimageextractor import extract_and_merge_office_images
 
         extract_and_merge_office_images(filename, document_bytes, pages)
+        total_images = sum(len(p.images) for p in pages)
+        logger.info("[%s] Extracted %d images from %s", filename, total_images, ext)
+    else:
+        total_images = sum(len(p.images) for p in pages)
+        if total_images:
+            logger.info("[%s] Parser already extracted %d images", filename, total_images)
 
     # 3. Process figures (upload to blob + describe + embed) — parallelized
     # Always generate GPT-4o descriptions so images are findable via text search.
     # When multimodal is also enabled, images additionally get visual embeddings.
     all_images = [image for page in pages for image in page.images]
     if all_images:
-        sem = asyncio.Semaphore(30)
+        sem = asyncio.Semaphore(3)
+        completed = 0
+        total = len(all_images)
+
+        next_milestone = 10  # next percentage milestone to log
 
         async def _process(img):
+            nonlocal completed, next_milestone
             async with sem:
-                return await process_page_image(
+                result = await process_page_image(
                     image=img,
                     document_filename=filename,
                     blob_manager=settings.blob_manager,
                     image_embeddings_client=settings.image_embeddings,
                     figure_processor=settings.figure_processor,
                 )
+                completed += 1
+                pct = completed * 100 // total
+                if pct >= next_milestone:
+                    logger.info("[%s] ===== IMAGE PROGRESS: %d/%d (%d%%) =====", filename, completed, total, pct)
+                    next_milestone = pct + 10 - (pct % 10)  # next 10% boundary
+                return result
 
-        logger.info("Processing %d figures concurrently for %s", len(all_images), filename)
+        logger.info("[%s] Processing %d images (concurrency=2)...", filename, total)
         await asyncio.gather(*[_process(img) for img in all_images])
+        logger.info("[%s] All %d images processed", filename, total)
 
     # 4. Chunk text (combines text with figure descriptions, then splits)
+    logger.info("[%s] Chunking text...", filename)
     file_obj = File(content=io.BytesIO(document_bytes))
     file_obj.content.name = filename
     sections = process_text(
@@ -369,15 +392,20 @@ async def process_and_index_document(filename: str, document_bytes: bytes, sourc
     )
 
     if not sections:
-        logger.warning("No sections produced from %s", filename)
+        logger.warning("[%s] No sections produced", filename)
         return 0
 
+    logger.info("[%s] Produced %d chunks", filename, len(sections))
+
     # 5. Remove old chunks for this file (avoids stale orphans on re-ingestion)
+    logger.info("[%s] Removing old chunks from index...", filename)
     await settings.search_manager.remove_content(path=filename)
 
     # 6. Embed and push to search index
+    logger.info("[%s] Embedding and indexing %d chunks...", filename, len(sections))
     await settings.search_manager.update_content(sections, url=source_url)
 
+    logger.info("[%s] Done — %d chunks indexed", filename, len(sections))
     return len(sections)
 
 
@@ -481,16 +509,13 @@ async def store_document(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.function_name(name="reindexall")
-@app.route(route="reindex-all", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-async def reindex_all(req: func.HttpRequest) -> func.HttpResponse:
+@app.function_name(name="cleanup")
+@app.route(route="cleanup", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+async def cleanup(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Re-index all documents in a SharePoint folder.
-    Lists every file via Microsoft Graph API, downloads each, and ingests it.
-
-    Body (JSON):
-        siteUrl:   SharePoint site URL (e.g. https://contoso.sharepoint.com/sites/mysite)
-        folderPath: Folder path within the document library (e.g. /General/Documents)
+    Delete the search index, clear all blobs from the content and images
+    containers, and recreate an empty index.  Call this before triggering
+    the Logic App to re-ingest all documents from SharePoint.
     """
     if settings is None:
         return func.HttpResponse(
@@ -499,122 +524,64 @@ async def reindex_all(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
         )
 
-    # Parse request body
-    try:
-        body = req.get_json()
-    except Exception:
-        body = {}
-    site_url = body.get("siteUrl") or os.getenv("SHAREPOINT_SITE_URL")
-    folder_path = body.get("folderPath") or os.getenv("SHAREPOINT_FOLDER_PATH", "")
-
-    if not site_url:
-        return func.HttpResponse(
-            json.dumps({"error": "siteUrl is required (in body or SHAREPOINT_SITE_URL env var)"}),
-            mimetype="application/json",
-            status_code=400,
-        )
-
-    # Ensure index exists
     global _index_ensured
-    if not _index_ensured:
+    deleted_images = 0
+    deleted_content = 0
+
+    try:
+        logger.info("Cleanup: deleting search index, clearing blob containers")
+
+        # 1. Delete the search index
+        try:
+            async with settings.search_info.create_search_index_client() as search_index_client:
+                await search_index_client.delete_index(settings.search_info.index_name)
+            logger.info("Cleanup: deleted search index '%s'", settings.search_info.index_name)
+        except Exception as e:
+            logger.warning("Cleanup: could not delete index (may not exist yet): %s", e)
+
+        # 2. Clear the images blob container
+        try:
+            image_container_client = settings.blob_manager.blob_service_client.get_container_client(
+                settings.blob_manager.image_container
+            )
+            if await image_container_client.exists():
+                async for blob in image_container_client.list_blobs():
+                    await image_container_client.delete_blob(blob.name)
+                    deleted_images += 1
+                logger.info("Cleanup: deleted %d blobs from images container", deleted_images)
+        except Exception as e:
+            logger.warning("Cleanup: error clearing images container: %s", e)
+
+        # 3. Clear the content blob container
+        try:
+            content_container_client = settings.blob_manager.blob_service_client.get_container_client(
+                settings.blob_manager.container
+            )
+            if await content_container_client.exists():
+                async for blob in content_container_client.list_blobs():
+                    await content_container_client.delete_blob(blob.name)
+                    deleted_content += 1
+                logger.info("Cleanup: deleted %d blobs from content container", deleted_content)
+        except Exception as e:
+            logger.warning("Cleanup: error clearing content container: %s", e)
+
+        # 4. Recreate the search index
         await settings.search_manager.create_index()
         _index_ensured = True
-
-    try:
-        token = settings.azure_credential.get_token("https://graph.microsoft.com/.default")
-        access_token = (await token).token
-        headers = {"Authorization": f"Bearer {access_token}"}
-
-        async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
-            # 1. Resolve the site ID from the site URL
-            from urllib.parse import urlparse
-
-            parsed = urlparse(site_url)
-            hostname = parsed.hostname
-            site_path = parsed.path.rstrip("/")
-            site_resp = await client.get(
-                f"https://graph.microsoft.com/v1.0/sites/{hostname}:{site_path}",
-                headers=headers,
-            )
-            if site_resp.status_code != 200:
-                return func.HttpResponse(
-                    json.dumps({"error": f"Could not resolve site: {site_resp.text[:500]}"}),
-                    mimetype="application/json",
-                    status_code=502,
-                )
-            site_id = site_resp.json()["id"]
-
-            # 2. Get the default document library drive
-            drives_resp = await client.get(
-                f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives",
-                headers=headers,
-            )
-            if drives_resp.status_code != 200:
-                return func.HttpResponse(
-                    json.dumps({"error": f"Could not list drives: {drives_resp.text[:500]}"}),
-                    mimetype="application/json",
-                    status_code=502,
-                )
-            drives = drives_resp.json().get("value", [])
-            if not drives:
-                return func.HttpResponse(
-                    json.dumps({"error": "No drives found on site"}),
-                    mimetype="application/json",
-                    status_code=404,
-                )
-            drive_id = drives[0]["id"]
-
-            # 3. List files in the folder (or root)
-            if folder_path and folder_path.strip("/"):
-                list_url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{folder_path.strip('/')}:/children"
-            else:
-                list_url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
-
-            results = []
-            # Page through all results
-            while list_url:
-                list_resp = await client.get(list_url, headers=headers)
-                if list_resp.status_code != 200:
-                    return func.HttpResponse(
-                        json.dumps({"error": f"Could not list files: {list_resp.text[:500]}"}),
-                        mimetype="application/json",
-                        status_code=502,
-                    )
-                data = list_resp.json()
-                items = data.get("value", [])
-
-                for item in items:
-                    # Skip folders
-                    if "folder" in item:
-                        continue
-                    filename = item["name"]
-                    item_id = item["id"]
-                    web_url = item.get("webUrl")
-
-                    logger.info("Reindex-all: processing %s (item=%s)", filename, item_id)
-                    file_bytes = await download_from_sharepoint(drive_id, item_id)
-                    if file_bytes is None:
-                        results.append({"filename": filename, "status": "download_failed"})
-                        continue
-
-                    try:
-                        chunks = await process_and_index_document(filename, file_bytes, source_url=web_url)
-                        results.append({"filename": filename, "status": "success", "chunks": chunks})
-                    except ValueError as e:
-                        results.append({"filename": filename, "status": "skipped", "reason": str(e)})
-                    except Exception as e:
-                        logger.error("Reindex-all: error processing %s: %s", filename, e, exc_info=True)
-                        results.append({"filename": filename, "status": "error", "reason": str(e)})
-
-                list_url = data.get("@odata.nextLink")
+        logger.info("Cleanup: recreated search index '%s'", settings.search_info.index_name)
 
         return func.HttpResponse(
-            json.dumps({"status": "complete", "files": results}, ensure_ascii=False),
+            json.dumps({
+                "status": "success",
+                "index": settings.search_info.index_name,
+                "deleted_images": deleted_images,
+                "deleted_content_blobs": deleted_content,
+            }),
             mimetype="application/json",
             status_code=200,
         )
     except Exception as e:
-        logger.error("Reindex-all failed: %s", e, exc_info=True)
+        logger.error("Cleanup failed: %s", e, exc_info=True)
         return func.HttpResponse(
             json.dumps({"error": str(e)}),
             mimetype="application/json",

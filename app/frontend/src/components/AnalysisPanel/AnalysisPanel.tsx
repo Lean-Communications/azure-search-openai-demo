@@ -1,6 +1,7 @@
 import { useMsal } from "@azure/msal-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DOMPurify from "dompurify";
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +9,7 @@ import { ChatAppResponse, getHeaders } from "../../api";
 import { getToken, useLogin } from "../../authConfig";
 import { MarkdownViewer } from "../MarkdownViewer";
 import { SupportingContent } from "../SupportingContent";
+import { rewriteBlobImageUrls } from "../SupportingContent/SupportingContentParser";
 import styles from "./AnalysisPanel.module.css";
 import { AnalysisPanelTabs } from "./AnalysisPanelTabs";
 import { ThoughtProcess } from "./ThoughtProcess";
@@ -20,9 +22,10 @@ interface Props {
     citationHeight: string;
     answer: ChatAppResponse;
     onCitationClicked?: (citationFilePath: string) => void;
+    onClose?: () => void;
 }
 
-export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeight, className, onActiveTabChanged, onCitationClicked }: Props) => {
+export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeight, className, onActiveTabChanged, onCitationClicked, onClose }: Props) => {
     const isDisabledThoughtProcessTab: boolean = !answer.context.thoughts;
     const dataPoints = answer.context.data_points;
     const hasSupportingContent = Boolean(
@@ -41,6 +44,15 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
     const fetchCitation = async () => {
         const token = client ? await getToken(client) : undefined;
         if (activeCitation) {
+            // Skip fetching PPTX/DOCX files from blob storage — they are stored
+            // in SharePoint, not blob, and are rendered from data_points text chunks instead.
+            const urlWithoutHash = activeCitation.split("#")[0];
+            const ext = urlWithoutHash.split(".").pop()?.toLowerCase();
+            if (ext === "pptx" || ext === "docx") {
+                setCitation("");
+                return;
+            }
+
             const originalHash = activeCitation.indexOf("#") ? activeCitation.split("#")[1] : "";
             const response = await fetch(activeCitation, {
                 method: "GET",
@@ -77,12 +89,16 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
             case "docx": {
                 const citationRef = activeCitation.replace(/^\/content\//, "");
                 const textItems = answer.context.data_points?.text ?? [];
-                const matchingChunks = textItems
-                    .filter(item => item.startsWith(citationRef + ": "))
-                    .map(item => {
-                        const content = item.substring(item.indexOf(": ") + 2);
-                        return DOMPurify.sanitize(content);
-                    });
+                const matchingChunks = [
+                    ...new Set(
+                        textItems
+                            .filter(item => item.startsWith(citationRef + ": "))
+                            .map(item => {
+                                const content = item.substring(item.indexOf(": ") + 2);
+                                return DOMPurify.sanitize(rewriteBlobImageUrls(content));
+                            })
+                    )
+                ];
 
                 if (matchingChunks.length > 0) {
                     return (
@@ -107,17 +123,24 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
             value={activeTab}
             onValueChange={value => onActiveTabChanged(value as AnalysisPanelTabs)}
         >
-            <TabsList>
-                <TabsTrigger value={AnalysisPanelTabs.ThoughtProcessTab} disabled={isDisabledThoughtProcessTab}>
-                    {t("headerTexts.thoughtProcess")}
-                </TabsTrigger>
-                <TabsTrigger value={AnalysisPanelTabs.SupportingContentTab} disabled={isDisabledSupportingContentTab}>
-                    {t("headerTexts.supportingContent")}
-                </TabsTrigger>
-                <TabsTrigger value={AnalysisPanelTabs.CitationTab} disabled={isDisabledCitationTab}>
-                    {t("headerTexts.citation")}
-                </TabsTrigger>
-            </TabsList>
+            <div className="flex items-center justify-between">
+                <TabsList>
+                    <TabsTrigger value={AnalysisPanelTabs.ThoughtProcessTab} disabled={isDisabledThoughtProcessTab}>
+                        {t("headerTexts.thoughtProcess")}
+                    </TabsTrigger>
+                    <TabsTrigger value={AnalysisPanelTabs.SupportingContentTab} disabled={isDisabledSupportingContentTab}>
+                        {t("headerTexts.supportingContent")}
+                    </TabsTrigger>
+                    <TabsTrigger value={AnalysisPanelTabs.CitationTab} disabled={isDisabledCitationTab}>
+                        {t("headerTexts.citation")}
+                    </TabsTrigger>
+                </TabsList>
+                {onClose && (
+                    <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" aria-label="Close panel">
+                        <X size={18} />
+                    </button>
+                )}
+            </div>
             <TabsContent value={AnalysisPanelTabs.ThoughtProcessTab}>
                 <ThoughtProcess thoughts={answer.context.thoughts || []} onCitationClicked={onCitationClicked} />
             </TabsContent>

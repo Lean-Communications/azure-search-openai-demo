@@ -51,7 +51,7 @@ async def _generate_document_summary(
         response = await client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "Summarize what this document is about in 1-2 sentences."},
+                {"role": "system", "content": "Oppsummer hva dette dokumentet handler om i 1-2 setninger. Svar alltid på norsk."},
                 {"role": "user", "content": first_text},
             ],
             max_tokens=SUMMARY_MAX_TOKENS,

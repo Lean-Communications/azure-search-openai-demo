@@ -6,6 +6,7 @@ param name string
 param additionalScopes array = []
 param additionalAllowedAudiences array = []
 param allowedApplications array = []
+param excludedPaths array = []
 
 param clientAppId string = ''
 param serverAppId string = ''
@@ -35,6 +36,7 @@ resource auth 'Microsoft.App/containerApps/authConfigs@2024-10-02-preview' = {
     globalValidation: {
       redirectToProvider: 'azureactivedirectory'
       unauthenticatedClientAction: enableUnauthenticatedAccess ? 'AllowAnonymous' : 'RedirectToLoginPage'
+      excludedPaths: excludedPaths
     }
     identityProviders: {
       azureActiveDirectory: {

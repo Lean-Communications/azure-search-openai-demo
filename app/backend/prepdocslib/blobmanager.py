@@ -55,48 +55,11 @@ class BaseBlobManager:
         cls, image_bytes: bytes, document_filename: str, image_filename: str, page_num: int
     ) -> bytes:
         """
-        Adds citation text to an image from a document.
-        Args:
-            image_bytes: The original image bytes
-            document_filename: The name of the document containing the image
-            image_filename: The name of the image file
-            page_num: The page number where the image appears
-        Returns:
-            A tuple containing (BytesIO of the modified image, format of the image)
+        Previously added citation overlay text to images. Now returns the
+        original image unchanged — citation/source info is provided via search
+        index metadata and prompt text instead.
         """
-        # Load and modify the image to add text
-        image = Image.open(io.BytesIO(image_bytes))
-        line_height = 30
-        text_height = line_height * 2  # Two lines of text
-        new_img = Image.new("RGB", (image.width, image.height + text_height), "white")
-        new_img.paste(image, (0, text_height))
-
-        # Add text
-        draw = ImageDraw.Draw(new_img)
-        sourcepage = cls.sourcepage_from_file_page(document_filename, page=page_num)
-        text = sourcepage
-        figure_text = image_filename
-
-        # Load the Jupiteroid font which is included in the repo
-        font_path = Path(__file__).parent / "Jupiteroid-Regular.ttf"
-        font = ImageFont.truetype(str(font_path), 20)  # Slightly smaller font for better fit
-
-        # Calculate text widths for right alignment
-        fig_width = draw.textlength(figure_text, font=font)
-
-        # Left align document name, right align figure name
-        padding = 20  # Padding from edges
-        draw.text((padding, 5), text, font=font, fill="black")  # Left aligned
-        draw.text(
-            (new_img.width - fig_width - padding, line_height + 5), figure_text, font=font, fill="black"
-        )  # Right aligned
-
-        # Convert back to bytes
-        output = io.BytesIO()
-        format = image.format or "PNG"
-        new_img.save(output, format=format)
-
-        return output.getvalue()
+        return image_bytes
 
     async def upload_document_image(
         self,

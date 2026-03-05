@@ -6,6 +6,7 @@ calls the deployed /chat endpoint for each question, grades responses,
 stores results in blob, and emits App Insights custom events.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -81,16 +82,20 @@ async def _call_chat_endpoint(
     question: str,
     overrides: dict,
     bearer_token: str | None = None,
+    eval_api_key: str | None = None,
 ) -> tuple[str, list[str], float]:
     """
     Call the /chat endpoint and return (answer, context_texts, latency_seconds).
     """
     headers = {"Content-Type": "application/json"}
-    if bearer_token:
+    if eval_api_key:
+        headers["X-Eval-Api-Key"] = eval_api_key
+        logger.info("Sending request with eval API key")
+    elif bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
         logger.info("Sending request with Bearer token (length=%d)", len(bearer_token))
     else:
-        logger.warning("No bearer token — sending request without Authorization header")
+        logger.warning("No bearer token or API key — sending request without auth header")
 
     payload = {
         "messages": [{"content": question, "role": "user"}],
@@ -190,17 +195,27 @@ Respond with ONLY a single integer from 1 to 5."""
             "temperature": 0,
             "max_tokens": 5,
         }
-        try:
-            resp = await client.post(api_url, json=payload, headers=headers, timeout=60.0)
-            if resp.status_code == 200:
-                text = resp.json()["choices"][0]["message"]["content"].strip()
-                scores[metric_name] = float(text)
-            else:
-                logger.warning("GPT grading for %s failed: %d", metric_name, resp.status_code)
-                scores[metric_name] = -1.0
-        except Exception as e:
-            logger.warning("GPT grading for %s error: %s", metric_name, e)
-            scores[metric_name] = -1.0
+        for attempt in range(4):
+            try:
+                resp = await client.post(api_url, json=payload, headers=headers, timeout=60.0)
+                if resp.status_code == 200:
+                    text = resp.json()["choices"][0]["message"]["content"].strip()
+                    scores[metric_name] = float(text)
+                    break
+                elif resp.status_code == 429:
+                    retry_after = int(resp.headers.get("retry-after", 2 ** attempt))
+                    logger.warning("GPT grading for %s rate-limited, retrying in %ds (attempt %d)", metric_name, retry_after, attempt + 1)
+                    await asyncio.sleep(retry_after)
+                else:
+                    logger.warning("GPT grading for %s failed: %d", metric_name, resp.status_code)
+                    scores[metric_name] = -1.0
+                    break
+            except Exception as e:
+                logger.warning("GPT grading for %s error: %s (attempt %d)", metric_name, e, attempt + 1)
+                if attempt < 3:
+                    await asyncio.sleep(2 ** attempt)
+                else:
+                    scores[metric_name] = -1.0
 
     return scores
 
@@ -224,6 +239,7 @@ async def run_evaluation(
     container_name = os.getenv("EVAL_BLOB_CONTAINER", "eval-data")
     target_url = os.environ["EVAL_TARGET_URL"]
     target_app_id = os.getenv("EVAL_TARGET_APP_ID", "")
+    eval_api_key = os.getenv("EVAL_API_KEY", "")
     eval_deployment = os.getenv("AZURE_OPENAI_EVAL_DEPLOYMENT", "eval")
 
     azure_openai_custom_url = os.getenv("AZURE_OPENAI_CUSTOM_URL")
@@ -267,78 +283,81 @@ async def run_evaluation(
         qa_pairs = qa_pairs[:num_questions]
 
     logger.info("Running evaluation run_id=%s with %d questions against %s", run_id, len(qa_pairs), target_url)
-    logger.info("EVAL_TARGET_APP_ID=%s (truthy=%s)", target_app_id, bool(target_app_id))
 
-    # Acquire bearer token for target app
-    bearer_token = await _get_bearer_token(credential, target_app_id)
-    logger.info("Bearer token acquired: %s (length=%d)", bearer_token is not None, len(bearer_token) if bearer_token else 0)
+    # Use eval API key if available (bypasses Easy Auth via /eval/chat endpoint),
+    # otherwise fall back to Bearer token auth
+    bearer_token = None
+    if not eval_api_key and target_app_id:
+        bearer_token = await _get_bearer_token(credential, target_app_id)
+        logger.info("Bearer token acquired: %s", bearer_token is not None)
 
-    # Decode JWT claims for debugging (token is base64-encoded, no verification needed)
-    if bearer_token:
-        import base64
-        parts = bearer_token.split(".")
-        if len(parts) >= 2:
-            # Add padding and decode payload
-            payload = parts[1] + "=" * (4 - len(parts[1]) % 4)
-            try:
-                claims = json.loads(base64.b64decode(payload))
-                logger.info("JWT claims: aud=%s appid=%s azp=%s iss=%s sub=%s", claims.get("aud"), claims.get("appid"), claims.get("azp"), claims.get("iss"), claims.get("sub"))
-            except Exception as e:
-                logger.warning("Could not decode JWT: %s", e)
+    concurrency = int(os.getenv("EVAL_CONCURRENCY", "3"))
 
-    results = []
+    async def evaluate_single(client, i, qa):
+        question = qa["question"]
+        truth = qa.get("truth", "")
+
+        logger.info("Evaluating question %d/%d: %s", i + 1, len(qa_pairs), question[:80])
+
+        # Call chat endpoint
+        answer, context_texts, latency = await _call_chat_endpoint(
+            client, target_url, question, chat_overrides, bearer_token, eval_api_key
+        )
+
+        # Local metrics
+        any_citation = _compute_any_citation(answer)
+        citations_matched = _compute_citations_matched(answer, truth)
+        answer_length = len(answer)
+
+        # GPT-based grading
+        gpt_scores = await _grade_with_gpt(
+            client, azure_endpoint, eval_deployment, credential, question, answer, context_texts
+        )
+
+        result = {
+            "question": question,
+            "truth": truth,
+            "source": qa.get("source", "generated"),
+            "answer": answer,
+            "context": context_texts[:3],
+            "groundedness": gpt_scores.get("groundedness", -1),
+            "relevance": gpt_scores.get("relevance", -1),
+            "citations_matched": citations_matched,
+            "any_citation": any_citation,
+            "latency": round(latency, 3),
+            "answer_length": answer_length,
+        }
+
+        # Emit per-question telemetry
+        emit_eval_question_result(
+            run_id=run_id,
+            question=question,
+            truth=truth,
+            answer=answer,
+            context="\n---\n".join(context_texts[:3]),
+            source=qa.get("source", "generated"),
+            groundedness=result["groundedness"],
+            relevance=result["relevance"],
+            citations_matched=citations_matched,
+            any_citation=any_citation,
+            latency=latency,
+            answer_length=answer_length,
+        )
+        return result
+
+    results = [None] * len(qa_pairs)
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def bounded_evaluate(client, i, qa):
+        async with semaphore:
+            return i, await evaluate_single(client, i, qa)
+
     async with httpx.AsyncClient(follow_redirects=False) as client:
-        for i, qa in enumerate(qa_pairs):
-            question = qa["question"]
-            truth = qa.get("truth", "")
-
-            logger.info("Evaluating question %d/%d: %s", i + 1, len(qa_pairs), question[:80])
-
-            # Call chat endpoint
-            answer, context_texts, latency = await _call_chat_endpoint(
-                client, target_url, question, chat_overrides, bearer_token
-            )
-
-            # Local metrics
-            any_citation = _compute_any_citation(answer)
-            citations_matched = _compute_citations_matched(answer, truth)
-            answer_length = len(answer)
-
-            # GPT-based grading
-            gpt_scores = await _grade_with_gpt(
-                client, azure_endpoint, eval_deployment, credential, question, answer, context_texts
-            )
-
-            result = {
-                "question": question,
-                "truth": truth,
-                "source": qa.get("source", "generated"),
-                "answer": answer,
-                "context": context_texts[:3],
-                "groundedness": gpt_scores.get("groundedness", -1),
-                "relevance": gpt_scores.get("relevance", -1),
-                "citations_matched": citations_matched,
-                "any_citation": any_citation,
-                "latency": round(latency, 3),
-                "answer_length": answer_length,
-            }
-            results.append(result)
-
-            # Emit per-question telemetry
-            emit_eval_question_result(
-                run_id=run_id,
-                question=question,
-                truth=truth,
-                answer=answer,
-                context="\n---\n".join(context_texts[:3]),
-                source=qa.get("source", "generated"),
-                groundedness=result["groundedness"],
-                relevance=result["relevance"],
-                citations_matched=citations_matched,
-                any_citation=any_citation,
-                latency=latency,
-                answer_length=answer_length,
-            )
+        tasks = [bounded_evaluate(client, i, qa) for i, qa in enumerate(qa_pairs)]
+        for coro in asyncio.as_completed(tasks):
+            i, result = await coro
+            results[i] = result
+            logger.info("Completed question %d/%d", i + 1, len(qa_pairs))
 
     # Compute summary
     valid_groundedness = [r["groundedness"] for r in results if r["groundedness"] >= 0]

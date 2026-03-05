@@ -43,10 +43,10 @@
     },
     "askTitle": "Ask your data",
     "multimodalExamples": {
-        "1": "Compare the impact of interest rates and GDP in financial markets.",
-        "2": "What is the expected trend for the S&P 500 index over the next five years? Compare it to the past S&P 500 performance",
-        "3": "Can you identify any correlation between oil prices and stock market trends?",
-        "placeholder": "Example: Does my plan cover annual eye exams?"
+        "1": "Vis meg bilder av samarbeid fra kursene våre",
+        "2": "Hva er de viktigste prinsippene i Lean Construction?",
+        "3": "Hvilke tilbakemeldinger har vi fått fra kursdeltakere?",
+        "placeholder": "Skriv et spørsmål (f.eks. hva er HMS-retningslinjene våre?)"
     },
     "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Generating answer",
