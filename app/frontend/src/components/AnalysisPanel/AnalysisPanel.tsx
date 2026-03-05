@@ -87,8 +87,9 @@ export const AnalysisPanel = ({ answer, activeTab, activeCitation, citationHeigh
                 if (matchingChunks.length > 0) {
                     return (
                         <div className={styles.citationContent}>
+                            <h3 className={styles.citationTitle}>{citationRef}</h3>
                             {matchingChunks.map((html, i) => (
-                                <div key={i} dangerouslySetInnerHTML={{ __html: html }} />
+                                <div key={i} className={styles.citationChunk} dangerouslySetInnerHTML={{ __html: html }} />
                             ))}
                         </div>
                     );
