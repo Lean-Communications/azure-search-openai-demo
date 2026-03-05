@@ -617,7 +617,7 @@ const Chat = () => {
                     <div className={styles.chatInput}>
                         <QuestionInput
                             clearOnSend
-                            placeholder={t("defaultExamples.placeholder")}
+                            placeholder={lastQuestionRef.current ? t("followUpPlaceholder") : t("defaultExamples.placeholder")}
                             disabled={isLoading}
                             onSend={question => makeApiRequest(question)}
                             showSpeechInput={showSpeechInput}

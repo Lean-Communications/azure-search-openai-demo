@@ -48,6 +48,7 @@
         "3": "Can you identify any correlation between oil prices and stock market trends?",
         "placeholder": "Example: Does my plan cover annual eye exams?"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Generating answer",
     "citationWithColon": "Citation:",
     "followupQuestions": "Follow-up questions:",

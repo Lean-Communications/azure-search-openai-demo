@@ -48,6 +48,7 @@
         "3": "Petrol fiyatları ile borsa trendleri arasında herhangi bir korelasyon bulabilir misiniz?",
         "placeholder": "Örnek: Planım yıllık göz muayenelerini kapsıyor mu?"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Cevap oluşturuluyor",
     "citationWithColon": "Alıntı:",
     "followupQuestions": "Takip soruları:",
