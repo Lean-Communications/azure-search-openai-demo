@@ -48,6 +48,7 @@
         "3": "¿Puedes identificar alguna correlación entre los precios del petróleo y las tendencias del mercado de valores?",
         "placeholder": "Ejemplo: ¿Mi plan cubre exámenes anuales de la vista?"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Generando respuesta",
     "citationWithColon": "Cita:",
     "followupQuestions": "Preguntas de seguimiento:",

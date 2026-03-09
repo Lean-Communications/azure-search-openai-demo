@@ -48,6 +48,7 @@
         "3": "Kun je enige correlatie vinden tussen olieprijzen en markttrends?",
         "placeholder": "Voorbeeld: dekt mijn pakket jaarlijkse oogonderzoeken?"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Antwoord genereren",
     "citationWithColon": "Citaat:",
     "followupQuestions": "Vervolgvragen:",

@@ -48,6 +48,7 @@
         "3": "Pouvez-vous identifier une corrélation entre les prix du pétrole et les tendances du marché boursier?",
         "placeholder": "Exemple: Mon plan couvre-t-il les examens oculaires annuels?"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Génération de la réponse",
     "citationWithColon": "Citation:",
     "followupQuestions": "Questions de suivi:",

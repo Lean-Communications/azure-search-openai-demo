@@ -48,6 +48,7 @@
         "3": "原油価格と株式市場の動向の間には相関関係があると思いますか？",
         "placeholder": "例：私の契約プランは年1回の眼科検診もカバーしていますか？"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "回答を生成中",
     "citationWithColon": "引用：",
     "followupQuestions": "フォローアップの質問：",

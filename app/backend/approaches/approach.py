@@ -937,10 +937,14 @@ class Approach(ABC):
 
         # Download the blob using the appropriate client
         result = None
-        if ".dfs.core.windows.net" in blob_url and self.user_blob_manager:
-            result = await self.user_blob_manager.download_blob(blob_path, user_oid=user_oid, container=container)
-        elif self.global_blob_manager:
-            result = await self.global_blob_manager.download_blob(blob_path, container=container)
+        try:
+            if ".dfs.core.windows.net" in blob_url and self.user_blob_manager:
+                result = await self.user_blob_manager.download_blob(blob_path, user_oid=user_oid, container=container)
+            elif self.global_blob_manager:
+                result = await self.global_blob_manager.download_blob(blob_path, container=container)
+        except Exception as e:
+            logging.warning("Failed to download blob %s: %s", blob_url, e)
+            return None
 
         if result:
             content, _ = result  # Unpack the tuple, ignoring properties

@@ -4,7 +4,7 @@ import DOMPurify from "dompurify";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { Copy, Check, Lightbulb, ClipboardList } from "lucide-react";
+import { Copy, Check, Lightbulb, ClipboardList, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import styles from "./Answer.module.css";
@@ -78,7 +78,26 @@ export const Answer = ({
                             rehypePlugins={[rehypeRaw]}
                             remarkPlugins={[remarkGfm]}
                             components={{
-                                img: () => null
+                                img: ({ src, alt }) => {
+                                    if (!src) return null;
+                                    const isDataUri = src.startsWith("data:");
+                                    const images = answer.context?.data_points?.images ?? [];
+                                    if (!isDataUri && !images.includes(src)) return null;
+                                    return (
+                                        <span className={styles.inlineImageWrapper}>
+                                            <img src={src} alt={alt ?? "Referenced image"} className={styles.inlineImage} />
+                                            <a
+                                                href={src}
+                                                download={alt || "image.png"}
+                                                className={styles.inlineImageDownload}
+                                                title={t("tooltips.save")}
+                                                onClick={e => e.stopPropagation()}
+                                            >
+                                                <Download className="h-3.5 w-3.5" />
+                                            </a>
+                                        </span>
+                                    );
+                                }
                             }}
                         />
                     </div>

@@ -48,6 +48,7 @@
         "3": "Hvilke tilbakemeldinger har vi fått fra kursdeltakere?",
         "placeholder": "Skriv et spørsmål (f.eks. hva er HMS-retningslinjene våre?)"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Generating answer",
     "citationWithColon": "Citation:",
     "followupQuestions": "Follow-up questions:",

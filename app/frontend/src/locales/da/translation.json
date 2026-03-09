@@ -47,6 +47,7 @@
         "3": "Kan du identificere nogen korrelation mellem oliepriser og aktiemarkedets tendenser?",
         "placeholder": "Eksempel: Dækker min plan årlige øjenundersøgelser?"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Genererer svar",
     "citationWithColon": "Kilder:",
     "followupQuestions": "Opfølgende spørgsmål:",

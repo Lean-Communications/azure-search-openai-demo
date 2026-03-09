@@ -48,6 +48,7 @@
         "3": "Você pode identificar alguma correlação entre os preços do petróleo e as tendências do mercado de ações?",
         "placeholder": "Exemplo: Meu plano cobre exames oftalmológicos anuais?"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Gerando resposta",
     "citationWithColon": "Citação:",
     "followupQuestions": "Acompanhar as respostas:",

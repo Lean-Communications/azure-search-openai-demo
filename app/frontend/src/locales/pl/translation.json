@@ -48,6 +48,7 @@
         "3": "Czy możesz zidentyfikować jakąkolwiek korelację między cenami ropy a trendami na rynku akcji?",
         "placeholder": "Przykład: Czy mój plan obejmuje coroczne badania wzroku?"
     },
+    "followUpPlaceholder": "Skriv et svar ...",
     "generatingAnswer": "Generowanie odpowiedzi",
     "citationWithColon": "Cytat:",
     "followupQuestions": "Pytania uzupełniające:",
