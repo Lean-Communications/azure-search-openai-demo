@@ -924,8 +924,8 @@ class Approach(ABC):
             container = url_parts[3]
             # Extract the blob path portion (everything after the container/filesystem segment)
             blob_path = "/".join(url_parts[4:])
-            # If %20 in URL, replace it with a space
-            blob_path = blob_path.replace("%20", " ")
+            # Decode URL-encoded characters (spaces, parentheses, etc.)
+            blob_path = unquote(blob_path)
         else:
             # Treat as a direct blob path
             blob_path = blob_url

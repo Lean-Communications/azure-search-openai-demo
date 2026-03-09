@@ -433,7 +433,7 @@ class BlobManager(BaseBlobManager):
         blob_name = f"{self.blob_name_from_file_name(document_filename)}/page{image_page_num}/{image_filename}"
         logger.info("Uploading blob for document image '%s'", blob_name)
         blob_client = await container_client.upload_blob(blob_name, image_bytes, overwrite=True)
-        return blob_client.url
+        return unquote(blob_client.url)
 
     async def download_blob(
         self, blob_path: str, user_oid: Optional[str] = None, container: Optional[str] = None
