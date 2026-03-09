@@ -187,6 +187,7 @@ class DataPoints:
     text: Optional[list[str]] = None
     images: Optional[list] = None
     citations: Optional[list[str]] = None
+    image_citations: Optional[list[str]] = None
     external_results_metadata: Optional[list[dict[str, Any]]] = None
     citation_activity_details: Optional[dict[str, dict[str, Any]]] = None
     citation_source_urls: Optional[dict[str, str]] = None
@@ -761,6 +762,7 @@ class Approach(ABC):
         citations = []
         text_sources = []
         image_sources = []
+        image_source_citations: list[str] = []
         seen_urls = set()
         blob_url_to_base64: dict[str, str] = {}
         external_results_metadata: list[dict[str, Any]] = []
@@ -802,10 +804,11 @@ class Approach(ABC):
                         continue
                     seen_urls.add(img["url"])
                     b64 = await self.download_blob_as_base64(img["url"], user_oid=user_oid)
+                    image_citation = self.get_image_citation(doc.sourcepage or "", img["url"])
                     if b64:
                         image_sources.append(b64)
+                        image_source_citations.append(doc.sourcepage or image_citation)
                         blob_url_to_base64[img["url"]] = b64
-                    image_citation = self.get_image_citation(doc.sourcepage or "", img["url"])
                     citations.append(image_citation)
 
             # Download top-level imageUrl (not gated by search_images)
@@ -815,8 +818,9 @@ class Approach(ABC):
                 b64 = await self.download_blob_as_base64(doc.image_url, user_oid=user_oid)
                 if b64:
                     image_sources.append(b64)
-                    blob_url_to_base64[doc.image_url] = b64
                     image_citation = self.get_image_citation(doc.sourcepage or "", doc.image_url)
+                    image_source_citations.append(doc.sourcepage or image_citation)
+                    blob_url_to_base64[doc.image_url] = b64
                     citations.append(image_citation)
 
         # Replace blob storage URLs in text sources with base64 data URIs so that
@@ -882,6 +886,7 @@ class Approach(ABC):
             text=text_sources,
             images=image_sources,
             citations=citations,
+            image_citations=image_source_citations if image_source_citations else None,
             external_results_metadata=external_results_metadata,
             citation_activity_details=citation_activity_details if citation_activity_details else None,
             citation_source_urls=citation_source_urls if citation_source_urls else None,

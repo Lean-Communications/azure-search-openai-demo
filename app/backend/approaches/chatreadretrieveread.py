@@ -343,6 +343,16 @@ class ChatReadRetrieveReadApproach(Approach):
             for t in (extra_info.data_points.text or [])
         ]
 
+        # Pair each image with its citation so the LLM can identify which image belongs to which source
+        image_items = []
+        images = extra_info.data_points.images or []
+        image_cits = extra_info.data_points.image_citations or []
+        for i, img_b64 in enumerate(images):
+            image_items.append({
+                "base64": img_b64,
+                "citation": image_cits[i] if i < len(image_cits) else "ukjent kilde",
+            })
+
         messages = self.prompt_manager.render_prompt(
             self.answer_prompt,
             self.get_system_prompt_variables(overrides.get("prompt_template"))
@@ -351,6 +361,7 @@ class ChatReadRetrieveReadApproach(Approach):
                 "past_messages": self.sanitize_past_messages(messages[:-1]),
                 "user_query": original_user_query,
                 "text_sources": llm_text_sources,
+                "image_items": image_items,
                 "image_sources": extra_info.data_points.images,
                 "citations": extra_info.data_points.citations,
             },

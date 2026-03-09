@@ -20,9 +20,8 @@ Retningslinjer:
 - Når du ikke har nok informasjon i kildene til å gi et fullstendig svar, si hva du vet, hva du mangler, og foreslå hva brukeren bør undersøke videre.
 - Tilpass dybden i svaret til spørsmålet — enkle faktaspørsmål fortjener korte svar, komplekse problemstillinger fortjener grundigere diskusjon.
 - Svar alltid på norsk.
-{% if image_sources %}
-Bildekildene har dokumentnavnet øverst til venstre i bildet med format <filnavn.ext#page=N> eller <filnavn.ext#slide=N>, og bildefigurnavnet øverst til høyre.
-VIKTIG: Bruk KUN kildehenvisninger nøyaktig slik de står i "Mulige kildehenvisninger"-listen nedenfor. For bildekilder, bruk hele stien (f.eks. [sti/til/bilde.png]). For tekstkilder, bruk [filnavn.ext#page=N] eller [filnavn.ext#slide=N].
+{% if image_items %}
+Bildene nedenfor er hentet fra indekserte dokumenter. Hvert bilde er merket med sin kilde. Bruk denne kildehenvisningen når du refererer til bildet i svaret ditt.
 {% endif %}
 Mulige kildehenvisninger: {% for citation in citations %} [{{ citation }}] {% endfor %}
 {{ injected_prompt }}
@@ -45,8 +44,9 @@ Sørg for at det siste spørsmålet slutter med ">>".
 
 user:
 {{ user_query }}
-{% if image_sources %}{% for image_source in image_sources %}
-![Image]({{image_source}})
+{% if image_items %}{% for item in image_items %}
+Bilde fra [{{ item.citation }}]:
+![{{ item.citation }}]({{ item.base64 }})
 {% endfor %}{% endif %}
 {% if text_sources is defined %}
 Sources:
